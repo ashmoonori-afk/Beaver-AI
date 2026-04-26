@@ -1,0 +1,9 @@
+{
+  "name": "@beaver-ai/core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Beaver AI core: orchestrator, agent runtime, providers, workspace, plan, budget, wiki",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/index.ts"
+}

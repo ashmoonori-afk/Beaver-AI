@@ -1,0 +1,9 @@
+{
+  "name": "@beaver-ai/cli",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Beaver AI CLI — secondary scripting/headless surface",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/index.ts"
+}

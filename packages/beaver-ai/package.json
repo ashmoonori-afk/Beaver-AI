@@ -1,0 +1,11 @@
+{
+  "name": "beaver-ai",
+  "version": "0.0.0",
+  "description": "Beaver AI — fully autonomous development orchestrator. Library + CLI in one package.",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "beaver": "src/bin.ts"
+  }
+}

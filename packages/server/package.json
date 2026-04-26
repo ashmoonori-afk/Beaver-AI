@@ -1,0 +1,9 @@
+{
+  "name": "@beaver-ai/server",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Beaver AI local web server (Fastify + SSE) — primary surface in v0.1",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/index.ts"
+}

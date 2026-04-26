@@ -1,0 +1,19 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+
+  packages/beaver-ai: {}
+
+  packages/cli: {}
+
+  packages/core: {}
+
+  packages/server: {}
+
+  packages/webapp: {}

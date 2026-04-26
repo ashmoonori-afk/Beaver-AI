@@ -1,0 +1,17 @@
+{
+  "name": "beaver-ai-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Beaver AI — fully autonomous development orchestrator (monorepo root)",
+  "license": "MIT",
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "lint": "pnpm -r --if-present lint",
+    "format:check": "pnpm -r --if-present format:check",
+    "test": "pnpm -r --if-present test"
+  }
+}
