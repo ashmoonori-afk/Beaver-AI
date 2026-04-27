@@ -5,5 +5,8 @@
   "description": "Beaver AI core: orchestrator, agent runtime, providers, workspace, plan, budget, wiki",
   "license": "MIT",
   "type": "module",
-  "main": "src/index.ts"
+  "main": "src/index.ts",
+  "dependencies": {
+    "zod": "^4.3.6"
+  }
 }
