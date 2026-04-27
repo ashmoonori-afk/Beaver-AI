@@ -247,12 +247,22 @@ Phase 4U ships the React components against the Fastify dev server first (faster
 - Auto-update from 0.1.0-rc1 → 0.1.0 succeeds; user data preserved.
 - 0 Rust `unwrap` / `expect` in production paths (`#[deny(clippy::unwrap_used)]`).
 
-## Open questions to lock before 4D.0
+## Locks for 4D.0 (resolved 2026-04-27)
 
-1. **Code signing certificate** — EV (~$300/yr) vs self-signed for v0.1 (SmartScreen warning OK)? *Proposed: self-signed for v0.1, EV before v1.0.*
-2. **Auto-update channel** — GitHub Releases vs a private S3 bucket? *Proposed: GitHub Releases for v0.1; opt-out via env var `BEAVER_NO_AUTOUPDATE=1`.*
-3. **Sidecar bundling** — `node-sea` (Node 22 native) vs `pkg`? *Proposed: `node-sea` since we're already on Node 22.6+ (D1).*
-4. **Window chrome** — Win11 mica from day one, or plain frame and add mica in 4D.6? *Proposed: plain frame in 4D.0, mica in 4D.6 polish.*
+| Sub-decision | Choice | Notes |
+|---|---|---|
+| **Code signing** | Self-signed for v0.1 | First-launch SmartScreen warning ("Unknown publisher") is acknowledged; release notes will tell users to click "More info → Run anyway". Move to an EV cert before v1.0. |
+| **Auto-update channel** | GitHub Releases | Tauri's built-in updater pointed at the project's GitHub Releases. Opt-out via `BEAVER_NO_AUTOUPDATE=1`. Manifests are published alongside the binary in each release. |
+| **Sidecar bundling** | `node-sea` | Single-file Node binary using the built-in Single Executable Application API (Node 22.6+, already mandated by D1). No extra runtime dep, ~40 MB sidecar binary, Node version pinned with the app. |
+| **Window chrome** | Plain frame in 4D.0 → Win11 mica added in 4D.6 polish | Deferred so 4D.0 stays minimal. Renderer code is mica-blind either way (handled in `tauri.conf.json`). |
+
+These are sub-decisions of D17; locked here in the phase plan rather than as new D-numbers in [decisions/locked.md](../../decisions/locked.md) because they only affect 4D mechanics, not the rest of the architecture.
+
+### Implications
+
+- **Self-signed**: README and the desktop "About" dialog must surface the SmartScreen-bypass instruction one click away. Add `docs/install-windows.md` covering this before 4D.5 ships.
+- **GitHub Releases**: `release.yml` workflow uploads a `latest.json` manifest plus the platform binaries in one job. Tauri's updater verifies the signature against the bundled public key; the private key lives only in GitHub Actions secrets.
+- **node-sea**: Build step `node --experimental-sea-config sea-config.json` produces `beaver-sidecar.exe` / `beaver-sidecar` packaged into the Tauri bundle as `tauri.bundle.externalBin`. Sidecar version stamped at build time so the renderer can show it in the About dialog.
 
 ## What this kills from earlier plans
 
