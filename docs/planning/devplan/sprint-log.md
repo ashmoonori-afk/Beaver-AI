@@ -2,6 +2,77 @@
 
 > Append-only record of completed sprints. One entry per sprint.
 
+## [2026-04-27] P1.S3 — PreToolUse hook + policy wiring
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- followups:
+  - **D1 amendment**: engine bumped from `>=22.5.0` to `>=22.6.0` for
+    `--experimental-strip-types` support. CI workflow stays on Node 22
+    (latest patch picks up 22.6+); @types/node already at 22.x.
+  - **Hook deployment story is unsettled**: tsx is a devDep used to
+    spawn `hook.ts` in tests via `node --import=tsx`. Production
+    integration with real Claude Code will need either (a) a bundle
+    step that flattens hook + deps to a single .js, (b) ship tsx as
+    a runtime dep, or (c) wait for Node to natively resolve `.js`
+    relative imports against `.ts` source. Decision deferred to P1.S3
+    follow-up (when real CLI integration lands; for v0.1 the test path
+    using `--import=tsx` mirrors the production spawn shape).
+  - Hook installer writes `.claude/settings.json` in the workdir with
+    a structured PreToolUse entry. Real Claude Code may use a different
+    config schema; the installer abstracts the file write so the schema
+    can evolve without touching the adapter.
+- notes:
+  - 1 commit on `dev/p1.s3-pretooluse-hook`.
+  - Source layout (3 hook files; total 275 lines):
+      providers/claude-code/hook-core.ts    138  pure-ish runHook(input,
+                                                 env, opts) -> result.
+                                                 Imports only from
+                                                 sandbox/classify and
+                                                 workspace/* (P1.S3
+                                                 Spaghetti rule).
+                                                 Injectable sleep / now /
+                                                 idGen for test control.
+      providers/claude-code/hook.ts          63  thin wrapper. Reads
+                                                 stdin + env, calls
+                                                 runHook, writes stderr
+                                                 from result.stderr,
+                                                 exits with result.exitCode.
+      providers/claude-code/hook-install.ts  74  idempotent settings.json
+                                                 writer. Preserves
+                                                 unrelated keys. Adds
+                                                 only one PreToolUse
+                                                 entry on repeat install.
+  - Tests (14 new, 244 total):
+      hook-core.test.ts:    allow / hard-deny / require-confirmation
+                            (approve + reject) / fail-closed-on-db-error
+                            / 100-call p95 < 50ms in-process
+      hook.test.ts:         spawn-based E2E via `node --import=tsx`:
+                            rm -rf / -> exit 2 + agent.shell.denied event;
+                            allowed cmd -> exit 0 + agent.shell.classify
+                            event; missing env vars -> exit 2 with clear
+                            stderr; 5-call sequence -> 5 events.
+      hook-install.test.ts: first install creates entry; second install
+                            no-op; preserves unrelated settings keys;
+                            overwrites unparseable settings.json.
+  - tsconfig.base.json gained `allowImportingTsExtensions: true` and
+    `rewriteRelativeImportExtensions: true` so the strict relative-import
+    convention can be relaxed at the hook entry without breaking the
+    rest of core (which keeps its `.js` imports for NodeNext compat).
+  - Added `tsx` as a devDependency. Used only in
+    `node --import=tsx hook.ts` for the spawn-based E2E test.
+  - madge --circular: 51 ts files, no cycle.
+  - Bug-test items met:
+      rm -rf / proposed -> hook denies, run terminates (exit 2).
+      npm install <pkg> proposed -> checkpoint row created; manual
+        UPDATE (DAO answerCheckpoint) drives approve/reject paths.
+      100 allowed shell calls in sequence -> in-process p95 < 50ms;
+        spawn-based 5-call sequence completes in seconds.
+  - Code review items met:
+      hook script (hook.ts) 63 lines (< 150).
+      polling loop uses 500ms (default) sleep, not busy-loop;
+        injectable for test control.
+      hook errors -> deny exit 2 (fail closed, never fail open).
+
 ## [2026-04-27] P1.S2 — ClaudeCodeAdapter (spawn / parse / kill / budget)
 
 - exit tests: spaghetti ✓ · bug ✓ · review ✓

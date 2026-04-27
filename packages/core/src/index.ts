@@ -34,6 +34,8 @@ export * from './providers/claude-code/parse.js';
 export * from './providers/claude-code/spawn.js';
 export * from './providers/claude-code/kill.js';
 export * from './providers/claude-code/adapter.js';
+export * from './providers/claude-code/hook-core.js';
+export * from './providers/claude-code/hook-install.js';
 
 // workspace/ (SQLite ledger)
 export * from './workspace/db.js';
