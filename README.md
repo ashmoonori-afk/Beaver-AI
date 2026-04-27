@@ -17,7 +17,7 @@ Most "AI agents" are fragile chat wrappers. Beaver is a deterministic **state ma
 A user types one goal:
 
 ```
-node packages/cli/src/bin.ts run --no-server "Build a TypeScript TODO app with auth"
+node --import=tsx packages/cli/src/bin.ts run --no-server "Build a TypeScript TODO app with auth"
 ```
 
 …and Beaver:

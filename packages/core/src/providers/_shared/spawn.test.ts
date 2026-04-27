@@ -3,13 +3,25 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, it, expect } from 'vitest';
 
-import { spawnAdapterCli } from './spawn.js';
+import { resolveSpawnCommand, spawnAdapterCli } from './spawn.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOCK_CLI = path.join(HERE, '..', '_test', 'mock-cli.js');
 const FX_DIR = path.join(HERE, '..', '_test', 'fixtures');
 
 describe('spawnAdapterCli', () => {
+  it('resolves bare Windows commands to .cmd shims', () => {
+    const actualPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      expect(resolveSpawnCommand('claude')).toBe('claude.cmd');
+      expect(resolveSpawnCommand('codex.cmd')).toBe('codex.cmd');
+      expect(resolveSpawnCommand(process.execPath)).toBe(process.execPath);
+    } finally {
+      if (actualPlatform) Object.defineProperty(process, 'platform', actualPlatform);
+    }
+  });
+
   it('yields one line per stdout chunk for the claude-normal fixture', async () => {
     const { lines, exit } = spawnAdapterCli({
       cliPath: process.execPath,

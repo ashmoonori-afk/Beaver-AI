@@ -134,6 +134,15 @@ describe('ClaudeCodeAdapter.run — wall-clock timeout', () => {
   }, 15_000);
 });
 
+describe('ClaudeCodeAdapter.run ??process failure', () => {
+  it('returns status=failed when the CLI exits non-zero', async () => {
+    const adapter = mkAdapter(fx('claude-nonzero.json'));
+    const result = await adapter.run({ prompt: 'p', workdir });
+    expect(result.status).toBe('failed');
+    expect(() => RunResultSchema.parse(result)).not.toThrow();
+  });
+});
+
 describe('ClaudeCodeAdapter.cost', () => {
   it('uses the rate_table to convert usage to USD', () => {
     const adapter = mkAdapter(fx('claude-normal.json'));

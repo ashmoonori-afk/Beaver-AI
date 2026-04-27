@@ -68,7 +68,11 @@ export class CodexAdapter implements ProviderAdapter {
 
   async run(opts: RunOptions): Promise<RunResult> {
     const cliPath = this.opts.cliPath ?? 'codex';
-    const args = [...(this.opts.defaultArgs ?? [])];
+    // Real `codex` CLI runs non-interactively via `codex exec --json` +
+    // the prompt as the last positional arg. Tests inject defaultArgs
+    // (mock-cli + fixture) and that path bypasses these production defaults.
+    const productionMode = this.opts.defaultArgs === undefined;
+    const args = productionMode ? ['exec', '--json'] : [...(this.opts.defaultArgs ?? [])];
     const transcriptPath = path.join(opts.workdir, '.beaver-transcript.jsonl');
 
     const transcript: AgentEvent[] = [];
@@ -77,7 +81,14 @@ export class CodexAdapter implements ProviderAdapter {
     let timedOut = false;
     let budgetExceeded = false;
 
-    const stdin = (opts.systemPrompt ? opts.systemPrompt + '\n\n' : '') + opts.prompt;
+    if (productionMode) {
+      const fullPrompt = (opts.systemPrompt ? opts.systemPrompt + '\n\n' : '') + opts.prompt;
+      args.push(fullPrompt);
+    }
+    // stdin is only piped on the test path; production uses the prompt arg.
+    const stdin = productionMode
+      ? undefined
+      : (opts.systemPrompt ? opts.systemPrompt + '\n\n' : '') + opts.prompt;
 
     // Optional PATH-shim install: T2/T3. The shim wraps `rm`/`curl`/...
     // and routes them through classify-cli before exec'ing the real binary.
@@ -102,8 +113,9 @@ export class CodexAdapter implements ProviderAdapter {
       cliPath,
       args,
       cwd: opts.workdir,
-      stdin,
+      ...(stdin !== undefined && { stdin }),
       ...(env !== undefined && { env }),
+      ...(opts.signal !== undefined && { signal: opts.signal }),
     });
 
     let timeoutId: NodeJS.Timeout | null = null;
@@ -151,7 +163,7 @@ export class CodexAdapter implements ProviderAdapter {
       opts.signal?.removeEventListener('abort', abortListener);
     }
 
-    await spawned.exit;
+    const exitCode = await spawned.exit;
 
     const status: RunStatus = budgetExceeded
       ? 'budget_exceeded'
@@ -159,7 +171,9 @@ export class CodexAdapter implements ProviderAdapter {
         ? 'timeout'
         : opts.signal?.aborted
           ? 'aborted'
-          : 'ok';
+          : exitCode === 0
+            ? 'ok'
+            : 'failed';
 
     writeFileSync(
       transcriptPath,
@@ -167,7 +181,10 @@ export class CodexAdapter implements ProviderAdapter {
       'utf8',
     );
 
-    const summary = textChunks.join('').slice(0, SUMMARY_MAX_CHARS) || `status=${status}`;
+    const stderr = spawned.stderr();
+    const summary =
+      textChunks.join('').slice(0, SUMMARY_MAX_CHARS) ||
+      (stderr.length > 0 ? stderr.slice(0, SUMMARY_MAX_CHARS) : `status=${status}`);
     const usage: Usage = totalUsage.model === '?' ? totalUsage : totalUsage;
 
     return RunResultSchema.parse({

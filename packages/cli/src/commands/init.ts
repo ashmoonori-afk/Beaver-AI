@@ -19,9 +19,21 @@ function isGitRepo(dir: string): boolean {
   return fs.existsSync(path.join(dir, '.git'));
 }
 
+function resolveCommand(cli: string): string {
+  if (process.platform !== 'win32') return cli;
+  if (path.extname(cli).length > 0) return cli;
+  return `${cli}.cmd`;
+}
+
 function ping(cli: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const child = spawn(cli, ['--version'], { stdio: 'ignore', shell: true });
+    let child;
+    try {
+      child = spawn(resolveCommand(cli), ['--version'], { stdio: 'ignore' });
+    } catch {
+      resolve(false);
+      return;
+    }
     child.on('error', () => resolve(false));
     child.on('exit', (code) => resolve(code === 0));
   });

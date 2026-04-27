@@ -11,7 +11,10 @@ import type { AgentEvent } from '../../types/event.js';
 
 import { CodexStreamEventSchema, type CodexStreamEvent } from './protocol.js';
 
-/** Try to parse one stdout line into a known stream event. */
+/** Try to parse one stdout line into a known stream event.
+ *  Falls back to lifting real `codex exec --json` events (msg.type
+ *  ∈ {'agent_message', 'task_complete', 'token_count'}) into the
+ *  internal CodexStreamEvent shape so the adapter loop is uniform. */
 export function parseLine(line: string): CodexStreamEvent | null {
   let raw: unknown;
   try {
@@ -19,8 +22,47 @@ export function parseLine(line: string): CodexStreamEvent | null {
   } catch {
     return null;
   }
-  const r = CodexStreamEventSchema.safeParse(raw);
-  return r.success ? r.data : null;
+  const internal = CodexStreamEventSchema.safeParse(raw);
+  if (internal.success) return internal.data;
+  if (raw !== null && typeof raw === 'object') {
+    const lifted = liftRealCodexEvent(raw as Record<string, unknown>);
+    if (lifted) return lifted;
+  }
+  return null;
+}
+
+interface CodexRealMsg {
+  type?: string;
+  message?: string;
+  text?: string;
+  last_agent_message?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+}
+
+function liftRealCodexEvent(raw: Record<string, unknown>): CodexStreamEvent | null {
+  // codex exec --json wraps each event payload under `msg`.
+  const msg = (raw.msg ?? raw) as CodexRealMsg;
+  const t = msg.type;
+  if (t === 'agent_message' && (typeof msg.message === 'string' || typeof msg.text === 'string')) {
+    return { type: 'output_delta', text: (msg.message ?? msg.text ?? '') as string };
+  }
+  if (t === 'task_complete' && typeof msg.last_agent_message === 'string') {
+    return { type: 'output_delta', text: msg.last_agent_message };
+  }
+  if (
+    t === 'token_count' &&
+    typeof msg.input_tokens === 'number' &&
+    typeof msg.output_tokens === 'number'
+  ) {
+    return {
+      type: 'usage',
+      tokensIn: msg.input_tokens,
+      tokensOut: msg.output_tokens,
+      model: 'codex',
+    };
+  }
+  return null;
 }
 
 /** Map a parsed stream event to an AgentEvent ready for the event bus. */

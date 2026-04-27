@@ -54,7 +54,21 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
 
   async run(opts: RunOptions): Promise<RunResult> {
     const cliPath = this.opts.cliPath ?? 'claude';
-    const args = [...(this.opts.defaultArgs ?? [])];
+    // Real `claude` CLI needs --print to run headlessly + --output-format
+    // stream-json --verbose to emit one JSONL event per line. Tests inject
+    // `cliPath = process.execPath` + `defaultArgs = [mockCliPath, fixturePath]`
+    // and the explicit defaultArgs override these production defaults.
+    const args =
+      this.opts.defaultArgs !== undefined
+        ? [...this.opts.defaultArgs]
+        : ['--print', '--output-format', 'stream-json', '--verbose'];
+    // Production path: pass the prompt as the last positional arg
+    // (Claude `claude --print "<prompt>"` accepts it). Test path: defaultArgs
+    // already includes the fixture path; the prompt is unused by mock-cli.
+    if (this.opts.defaultArgs === undefined) {
+      const fullPrompt = (opts.systemPrompt ? opts.systemPrompt + '\n\n' : '') + opts.prompt;
+      args.push(fullPrompt);
+    }
     const transcriptPath = path.join(opts.workdir, '.beaver-transcript.jsonl');
 
     const transcript: AgentEvent[] = [];
@@ -63,8 +77,20 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     let timedOut = false;
     let budgetExceeded = false;
 
-    const stdin = (opts.systemPrompt ? opts.systemPrompt + '\n\n' : '') + opts.prompt;
-    const spawned = spawnAdapterCli({ cliPath, args, cwd: opts.workdir, stdin });
+    // Production path passes the prompt as a CLI arg above; only feed stdin
+    // when the test fixture explicitly relies on it (mock-cli ignores stdin
+    // unless `expectStdinContains` is set in the fixture).
+    const stdin =
+      this.opts.defaultArgs !== undefined
+        ? (opts.systemPrompt ? opts.systemPrompt + '\n\n' : '') + opts.prompt
+        : undefined;
+    const spawned = spawnAdapterCli({
+      cliPath,
+      args,
+      cwd: opts.workdir,
+      ...(stdin !== undefined && { stdin }),
+      ...(opts.signal !== undefined && { signal: opts.signal }),
+    });
 
     let timeoutId: NodeJS.Timeout | null = null;
     if (opts.timeoutMs !== undefined) {
@@ -111,7 +137,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       opts.signal?.removeEventListener('abort', abortListener);
     }
 
-    await spawned.exit;
+    const exitCode = await spawned.exit;
 
     const status: RunStatus = budgetExceeded
       ? 'budget_exceeded'
@@ -119,7 +145,9 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
         ? 'timeout'
         : opts.signal?.aborted
           ? 'aborted'
-          : 'ok';
+          : exitCode === 0
+            ? 'ok'
+            : 'failed';
 
     writeFileSync(
       transcriptPath,
@@ -127,7 +155,10 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       'utf8',
     );
 
-    const summary = textChunks.join('').slice(0, SUMMARY_MAX_CHARS) || `status=${status}`;
+    const stderr = spawned.stderr();
+    const summary =
+      textChunks.join('').slice(0, SUMMARY_MAX_CHARS) ||
+      (stderr.length > 0 ? stderr.slice(0, SUMMARY_MAX_CHARS) : `status=${status}`);
     const usage: Usage = totalUsage.model === '?' ? totalUsage : totalUsage;
 
     return RunResultSchema.parse({

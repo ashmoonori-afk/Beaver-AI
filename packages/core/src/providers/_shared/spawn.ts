@@ -3,6 +3,7 @@
 // Per-provider stream parsing lives in <provider>/parse.ts.
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import path from 'node:path';
 
 export interface SpawnAdapterOptions {
   /** Path to the executable (e.g. `claude`, `codex`, or process.execPath
@@ -29,8 +30,16 @@ export interface SpawnedAdapter {
   exit: Promise<number | null>;
 }
 
+export function resolveSpawnCommand(cliPath: string): string {
+  if (process.platform !== 'win32') return cliPath;
+  if (path.isAbsolute(cliPath)) return cliPath;
+  if (cliPath.includes('\\') || cliPath.includes('/')) return cliPath;
+  if (path.extname(cliPath).length > 0) return cliPath;
+  return `${cliPath}.cmd`;
+}
+
 export function spawnAdapterCli(opts: SpawnAdapterOptions): SpawnedAdapter {
-  const child = spawn(opts.cliPath, opts.args ?? [], {
+  const child = spawn(resolveSpawnCommand(opts.cliPath), opts.args ?? [], {
     cwd: opts.cwd,
     env: opts.env ? { ...process.env, ...opts.env } : process.env,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -44,6 +53,7 @@ export function spawnAdapterCli(opts: SpawnAdapterOptions): SpawnedAdapter {
   child.stderr?.on('data', (c: Buffer) => stderrChunks.push(c));
 
   const exit = new Promise<number | null>((resolve) => {
+    child.once('error', () => resolve(127));
     child.once('exit', (code) => resolve(code));
   });
 

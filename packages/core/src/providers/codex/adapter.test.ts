@@ -91,6 +91,15 @@ describe('CodexAdapter.run — happy path', () => {
   });
 });
 
+describe('CodexAdapter.run ??process failure', () => {
+  it('returns status=failed when the CLI exits non-zero', async () => {
+    const adapter = mkAdapter(fx('codex-nonzero.json'));
+    const result = await adapter.run({ prompt: 'p', workdir });
+    expect(result.status).toBe('failed');
+    expect(() => RunResultSchema.parse(result)).not.toThrow();
+  });
+});
+
 describe('CodexAdapter.cost', () => {
   it('uses the rate_table to convert usage to USD', () => {
     const adapter = mkAdapter(fx('codex-normal.json'));

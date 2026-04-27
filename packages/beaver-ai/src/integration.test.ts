@@ -35,8 +35,8 @@ const FX_DIR = path.join(HERE, '..', '..', 'core', 'src', 'providers', '_test', 
 
 function which(cli: string): boolean {
   try {
-    // shell:true so Windows npm shims (claude.cmd, codex.cmd) resolve via PATHEXT.
-    execFileSync(cli, ['--version'], { stdio: 'pipe', shell: true });
+    const command = process.platform === 'win32' && !cli.endsWith('.cmd') ? `${cli}.cmd` : cli;
+    execFileSync(command, ['--version'], { stdio: 'pipe' });
     return true;
   } catch {
     return false;
