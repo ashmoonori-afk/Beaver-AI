@@ -20,7 +20,7 @@ if not exist node_modules (
 
 if not exist .beaver (
   echo Initializing .beaver/ ...
-  node packages\cli\src\bin.ts init
+  node --import=tsx packages\cli\src\bin.ts init
 )
 
 set /p GOAL="What should Beaver do? "
@@ -30,8 +30,12 @@ if "!GOAL!"=="" (
   exit /b 1
 )
 
+REM Strip any inner double quotes the user may have typed; cmd.exe would
+REM otherwise split the argument at them and commander would reject it.
+set GOAL=!GOAL:"=!
+
 echo.
-echo Running: node packages\cli\src\bin.ts run --no-server "!GOAL!"
+echo Running: beaver run --no-server "!GOAL!"
 echo.
 node --import=tsx packages\cli\src\bin.ts run --no-server "!GOAL!"
 

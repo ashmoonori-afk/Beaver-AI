@@ -27,9 +27,12 @@ function activeRunId(rootPath: string): string | null {
 }
 
 export async function runRun(argv: string[]): Promise<number> {
+  // Variadic <goal...> so users can type unquoted multi-word goals or
+  // quoted goals where the shell may have split inner quotes. We rejoin
+  // the positional args with single spaces.
   const cmd = new Command('run')
     .description('start a new run')
-    .argument('<goal>', 'natural-language goal')
+    .argument('<goal...>', 'natural-language goal (multi-word OK)')
     .option('--no-server', 'headless mode (mandatory in v0.1)')
     .option('--server', 'launch the local web server (Phase 4 — not landed)')
     .exitOverride();
@@ -44,7 +47,7 @@ export async function runRun(argv: string[]): Promise<number> {
     printerr(color.warn('run: --server: Phase 4 not landed yet; use --no-server'));
     return 2;
   }
-  const goal = cmd.args[0];
+  const goal = cmd.args.join(' ').trim();
   if (!goal) {
     printerr('run: missing <goal>');
     return 2;

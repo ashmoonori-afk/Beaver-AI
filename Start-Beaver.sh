@@ -23,6 +23,7 @@ if [ ! -d .beaver ]; then
 fi
 
 read -r -p "What should Beaver do? " GOAL
+GOAL="${GOAL//\"/}"
 if [ -z "$GOAL" ]; then
   echo "No goal provided. Exiting."
   exit 1

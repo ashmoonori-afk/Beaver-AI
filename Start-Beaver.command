@@ -23,7 +23,10 @@ if [ ! -d .beaver ]; then
   node --import=tsx packages/cli/src/bin.ts init
 fi
 
+# Strip inner double quotes the user may have typed (cmd-style habit)
+
 read -r -p "What should Beaver do? " GOAL
+GOAL="${GOAL//\"/}"
 if [ -z "$GOAL" ]; then
   echo "No goal provided. Exiting."
   read -n 1 -r -p "Press any key to exit..."
