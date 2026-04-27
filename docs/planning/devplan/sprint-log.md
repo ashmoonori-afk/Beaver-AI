@@ -2,6 +2,33 @@
 
 > Append-only record of completed sprints. One entry per sprint.
 
+## [2026-04-27] P0.S2 — Core types & zod schemas
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- followups:
+  - tester / integrator role enums kept in TaskSchema and AgentOpsConfig
+    even though those roles ship in v0.2 (per plan-format.md and
+    agent-operations.md note). Will be exercised end-to-end only when the
+    matching adapters / runtime paths land.
+- notes:
+  - 5 task-level commits + 1 setup commit + 1 fix/sprint-log commit on
+    `dev/p0.s2-core-types` (branched from main after P0.S1 fast-forward).
+  - zod 4.3.6 added to @beaver-ai/core (single source of truth schema lib).
+  - File layout: `core/src/{types,plan,budget,agent-runtime}/` with a
+    flat `core/src/index.ts` barrel using `export *` only (no rename
+    aliases — Spaghetti rule).
+  - Schemas: 11 source files, all <100 lines (provider.ts 57, plan/schema.ts
+    85, agent-runtime/schema.ts 76, budget/schema.ts 24, ...).
+  - madge --circular: clean (16 ts files processed).
+  - One spaghetti regression caught and fixed: plan/schema ↔ plan/cycle
+    type-only cycle resolved by defining `TaskNode` structurally inside
+    cycle.ts (one-way dep).
+  - One zod 4 gotcha caught: `.default()` must match the schema's *output*
+    type (post-defaults), not the input. `.default(() => ({...DEFAULTS}))`
+    used for nested role-keyed objects so empty input returns full defaults
+    while partial input still merges per-field.
+  - Test count: 45 tests across 5 files (1 placeholder removed in T5).
+
 ## [2026-04-27] P0.S1 — Repo scaffold
 
 - exit tests: spaghetti ✓ · bug ✓ · review ✓
