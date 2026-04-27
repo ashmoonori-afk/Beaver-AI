@@ -29,8 +29,15 @@ describe('<App />', () => {
     }
   });
 
-  it('renders the default Status panel stub on first load', () => {
+  it('default Status panel shows the GoalBox empty state', () => {
     render(<App />);
-    expect(screen.getByText(/Status panel/)).toBeInTheDocument();
+    expect(screen.getByText(/Beaver is idle/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Goal description')).toBeInTheDocument();
+  });
+
+  it('non-status panels still show their stub', () => {
+    window.location.hash = '#plan';
+    render(<App />);
+    expect(screen.getByText(/Plan panel/i)).toBeInTheDocument();
   });
 });

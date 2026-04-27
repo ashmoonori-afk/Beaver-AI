@@ -1,7 +1,11 @@
 // Top-level shell. Header (run id badge + nav) + active panel slot.
-// Per-panel components are stubs in this sprint; real renders land in
-// 4U.1 (GoalBox) → 4U.2 (bento) → 4U.3 (CheckpointCard) → 4U.4 → 4U.5.
+// Per-panel components: status panel renders the GoalBox empty state
+// in W.2; bento status comes in W.3; checkpoint / plan / logs / review
+// / wiki land in W.4–W.6.
 
+import { useCallback } from 'react';
+
+import { GoalBox } from './components/GoalBox.js';
 import { useCurrentPanel, type Panel, PANELS, navigate } from './router.js';
 import { cn } from './lib/utils.js';
 
@@ -43,8 +47,30 @@ function PanelStub({ name }: { name: Panel }) {
   );
 }
 
-export default function App() {
+function StatusPanel({ onSubmit }: { onSubmit: (goal: string) => void }) {
+  // Sprint W.3 will replace this empty state with the bento grid when
+  // a run is in progress. For W.2 the GoalBox is the entire status panel.
+  return (
+    <section className="flex h-[calc(100vh-4rem)] items-center justify-center">
+      <GoalBox onSubmit={onSubmit} />
+    </section>
+  );
+}
+
+export interface AppProps {
+  /** Caller wires this to the upstream run-start path. Tests inject a
+   *  spy. The Tauri shell (4D.1) wires it to invoke('runs.start', …). */
+  onGoal?: (goal: string) => void;
+}
+
+export default function App({ onGoal }: AppProps = {}) {
   const panel = useCurrentPanel();
+  const handleGoal = useCallback(
+    (goal: string) => {
+      if (onGoal) onGoal(goal);
+    },
+    [onGoal],
+  );
   return (
     <div className="min-h-screen bg-surface-900 font-sans">
       <header className="flex items-center justify-between border-b border-surface-700 px-6 py-3">
@@ -55,7 +81,7 @@ export default function App() {
         <Nav active={panel} />
       </header>
       <main className="px-6">
-        <PanelStub name={panel} />
+        {panel === 'status' ? <StatusPanel onSubmit={handleGoal} /> : <PanelStub name={panel} />}
       </main>
     </div>
   );
