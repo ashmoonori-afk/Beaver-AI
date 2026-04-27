@@ -2,6 +2,51 @@
 
 > Append-only record of completed sprints. One entry per sprint.
 
+## [2026-04-27] P6 + Final — Integration loop, audit, packaging
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- final integration loop test (3 cases, all pass): claude+codex CLIs
+  on $PATH (soft-skip when missing — CI), Beaver.run() drives mock-cli
+  to COMPLETED, wiki bootstrap creates the documented page set.
+- audit findings:
+  * Source files >200 lines: `wiki/ingest.ts` 224 (justified
+    fail-soft branches, well under 300 hard cap),
+    `orchestrator/loop.ts` 216 (within 250 spec cap).
+  * No hardcoded secrets in any source file.
+  * ClaudeCodeAdapter ↔ CodexAdapter share ~80 lines of run() loop
+    structure. Recorded as v0.2 refactor (extract reusable
+    `runProviderLoop(adapter, providerSpec)`); not done in v0.1
+    because both adapters are well-tested and stable.
+  * No `console.*` in production source (matches in comments only).
+  * `madge --circular`: 81 ts files, no cycle.
+- modularization deltas this milestone:
+  * `_shared/spawn.ts` + `_shared/kill.ts` extracted in P1.S4.
+  * Per-provider `parseLine` / `toAgentEvent` exposed under
+    `claudeCodeParse` / `codexParse` namespaces in the public barrel.
+  * Wiki: structured (`queryWiki`) + free-form (`askWiki`)
+    entry points share a page-selection helper instead of duplicating it.
+  * Orchestrator: small per-state handlers (no if/else cascades).
+- packaging deliverables:
+  * `.claude-plugin/plugin.json` + `skills/beaver-runner.md` +
+    `skills/beaver-wiki-ask.md` + `commands/beaver.md` —
+    drop-in Claude Code plugin manifest.
+  * `Start-Beaver.bat` (Windows), `Start-Beaver.command` (macOS),
+    `Start-Beaver.sh` (Linux) — double-click launchers that prompt
+    for a goal and shell out to the CLI.
+  * CLI bin: `node --import=tsx packages/cli/src/bin.ts <subcommand>`
+    works locally; ready for `bin` linking once the package is
+    published.
+- deferred to v0.2 (intentional, documented):
+  * Phase 4 web UI (Fastify server + React webapp). CLI is sufficient
+    for the v0.1 launcher; web UI is the polish layer.
+  * Adapter base-class refactor (the ~80-line run-loop dedup).
+  * Real-LLM integration tests (cost & flakiness gate; mock-cli covers
+    the deterministic path).
+  * Bundling hook.ts / classify-cli.ts to ship without `tsx` runtime.
+- final test count: **388 tests passing** across **64 test files**.
+- All 5 mvp-scope.md exit criteria are satisfiable on a fresh checkout
+  (verified via the integration test + the worked-example flow).
+
 ## [2026-04-27] P1.S4 — CodexAdapter + PATH shim + filesystem audit
 
 - exit tests: spaghetti ✓ · bug ✓ · review ✓
