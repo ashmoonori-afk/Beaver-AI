@@ -77,3 +77,66 @@ export interface CheckpointSummary {
   /** Optional wiki hint surfaced via `HintLine` (W.4 / 4U.5). */
   hint?: CheckpointHint;
 }
+
+/** A row of a plan version (W.5 / 4U.4). Same compact list the CLI renders. */
+export interface PlanTask {
+  id: string;
+  agentRole: AgentRole;
+  /** Short human-readable line, e.g. "Add /api/users route". */
+  title: string;
+  /** Optional dependency list (task ids that must finish first). */
+  dependsOn?: readonly string[];
+}
+
+export interface PlanSummary {
+  /** Stable id assigned by the orchestrator (e.g. `plan-1`, `plan-2`). */
+  id: string;
+  runId: string;
+  /** Monotonically increasing version number — the dropdown sorts by this. */
+  version: number;
+  /** ISO 8601. */
+  createdAt: string;
+  tasks: readonly PlanTask[];
+}
+
+export type LogEventLevel = 'info' | 'warn' | 'error' | 'debug';
+
+/** One row of the streaming log view. Sourced from the orchestrator's
+ *  audit log. The renderer never parses NDJSON — the transport decoder does. */
+export interface LogEvent {
+  id: string;
+  runId: string;
+  /** ISO 8601. */
+  ts: string;
+  level: LogEventLevel;
+  /** Source tag, e.g. `claude-code`, `codex`, `orchestrator`, `hook`. */
+  source: string;
+  /** Single-line message. */
+  message: string;
+  /** Raw NDJSON line — surfaced by the `--json` toggle. */
+  raw?: string;
+}
+
+export interface BranchSummary {
+  /** `beaver/<run>/<agent>` per the docs. */
+  ref: string;
+  agentRole: AgentRole;
+  /** Diff stats from the server — never computed on the client. */
+  diff: DiffStat;
+}
+
+export interface DiffStat {
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+}
+
+/** Hero card data for the #review panel. */
+export interface FinalReportSummary {
+  runId: string;
+  /** ISO 8601 of when the orchestrator wrote final-report.md. */
+  generatedAt: string;
+  /** Markdown body. Rendered via react-markdown with HTML disabled. */
+  markdown: string;
+  branches: readonly BranchSummary[];
+}

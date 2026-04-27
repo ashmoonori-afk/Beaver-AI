@@ -1,16 +1,26 @@
 // Top-level shell. Header (run id badge + nav) + active panel slot.
 // Per-panel components: status panel renders the GoalBox empty state
 // when no run is active, and the Bento grid (W.3) once a runId is set.
-// #checkpoints lands in W.4. plan / logs / review / wiki land in W.5–W.6.
+// Other panels: #checkpoints (W.4), #plan / #logs / #review (W.5),
+// #wiki (W.6 / 4U.5 — still stubbed here).
 
 import { useCallback, useMemo, useState } from 'react';
 
 import { Bento } from './components/Bento.js';
 import { CheckpointPanel } from './components/CheckpointPanel.js';
 import { GoalBox } from './components/GoalBox.js';
+import { LogsPanel } from './components/LogsPanel.js';
+import { PlanPanel } from './components/PlanPanel.js';
+import { ReviewPanel } from './components/ReviewPanel.js';
 import { makeMockCheckpointTransport } from './hooks/mockCheckpointTransport.js';
+import { makeMockEventsTransport } from './hooks/mockEventsTransport.js';
+import { makeMockFinalReviewTransport } from './hooks/mockFinalReviewTransport.js';
+import { makeMockPlanTransport } from './hooks/mockPlanTransport.js';
 import { makeMockTransport } from './hooks/mockTransport.js';
 import { useCheckpoints, type CheckpointTransport } from './hooks/useCheckpoints.js';
+import { useEvents, type EventsTransport } from './hooks/useEvents.js';
+import { useFinalReview, type FinalReviewTransport } from './hooks/useFinalReview.js';
+import { usePlanList, type PlanListTransport } from './hooks/usePlanList.js';
 import { useRunSnapshot, type RunSnapshotTransport } from './hooks/useRunSnapshot.js';
 import { useCurrentPanel, type Panel, PANELS, navigate } from './router.js';
 import { cn } from './lib/utils.js';
@@ -71,29 +81,70 @@ function StatusPanel({ activeRunId, transport, onSubmit }: StatusPanelProps) {
   return <Bento snapshot={snapshot} />;
 }
 
-interface CheckpointsPanelProps {
+function CheckpointsPanel({
+  activeRunId,
+  transport,
+}: {
   activeRunId: string | null;
   transport: CheckpointTransport;
-}
-
-function CheckpointsPanel({ activeRunId, transport }: CheckpointsPanelProps) {
+}) {
   const { checkpoints, answer } = useCheckpoints(activeRunId, transport);
   return <CheckpointPanel checkpoints={checkpoints} onAnswer={answer} />;
+}
+
+function PlanRoute({
+  activeRunId,
+  transport,
+}: {
+  activeRunId: string | null;
+  transport: PlanListTransport;
+}) {
+  const plans = usePlanList(activeRunId, transport);
+  return <PlanPanel plans={plans} />;
+}
+
+function LogsRoute({
+  activeRunId,
+  transport,
+}: {
+  activeRunId: string | null;
+  transport: EventsTransport;
+}) {
+  const events = useEvents(activeRunId, transport);
+  return <LogsPanel events={events} />;
+}
+
+function ReviewRoute({
+  activeRunId,
+  transport,
+}: {
+  activeRunId: string | null;
+  transport: FinalReviewTransport;
+}) {
+  const { report, decide } = useFinalReview(activeRunId, transport);
+  return <ReviewPanel report={report} onDecide={decide} />;
 }
 
 export interface AppProps {
   /** Caller wires this to the upstream run-start path. Tests inject a
    *  spy. The Tauri shell (4D.1) wires it to invoke('runs.start', …). */
   onGoal?: (goal: string) => void;
-  /** Test seam: inject a stub run-snapshot transport. Defaults to the
-   *  mock that walks PLANNING -> EXECUTING -> COMPLETED. */
+  /** Test seams — defaults are mock transports that exercise the demo. */
   transport?: RunSnapshotTransport;
-  /** Test seam: inject a stub checkpoint transport. Defaults to the
-   *  in-memory mock that seeds two pending checkpoints per run. */
   checkpointTransport?: CheckpointTransport;
+  planTransport?: PlanListTransport;
+  eventsTransport?: EventsTransport;
+  finalReviewTransport?: FinalReviewTransport;
 }
 
-export default function App({ onGoal, transport, checkpointTransport }: AppProps = {}) {
+export default function App({
+  onGoal,
+  transport,
+  checkpointTransport,
+  planTransport,
+  eventsTransport,
+  finalReviewTransport,
+}: AppProps = {}) {
   const panel = useCurrentPanel();
   const [activeGoal, setActiveGoal] = useState<string | null>(null);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -104,6 +155,18 @@ export default function App({ onGoal, transport, checkpointTransport }: AppProps
   const resolvedCheckpointTransport = useMemo(
     () => checkpointTransport ?? makeMockCheckpointTransport(),
     [checkpointTransport],
+  );
+  const resolvedPlanTransport = useMemo(
+    () => planTransport ?? makeMockPlanTransport(),
+    [planTransport],
+  );
+  const resolvedEventsTransport = useMemo(
+    () => eventsTransport ?? makeMockEventsTransport(),
+    [eventsTransport],
+  );
+  const resolvedFinalReviewTransport = useMemo(
+    () => finalReviewTransport ?? makeMockFinalReviewTransport(),
+    [finalReviewTransport],
   );
   const handleGoal = useCallback(
     (goal: string) => {
@@ -131,6 +194,12 @@ export default function App({ onGoal, transport, checkpointTransport }: AppProps
           />
         ) : panel === 'checkpoints' ? (
           <CheckpointsPanel activeRunId={activeRunId} transport={resolvedCheckpointTransport} />
+        ) : panel === 'plan' ? (
+          <PlanRoute activeRunId={activeRunId} transport={resolvedPlanTransport} />
+        ) : panel === 'logs' ? (
+          <LogsRoute activeRunId={activeRunId} transport={resolvedEventsTransport} />
+        ) : panel === 'review' ? (
+          <ReviewRoute activeRunId={activeRunId} transport={resolvedFinalReviewTransport} />
         ) : (
           <PanelStub name={panel} />
         )}

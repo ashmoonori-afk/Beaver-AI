@@ -46,10 +46,28 @@ describe('<App />', () => {
     expect(screen.getByLabelText('Goal description')).toBeInTheDocument();
   });
 
-  it('non-status panels still show their stub', () => {
+  it('the Wiki tab still shows its stub (lands in 4U.5)', () => {
+    window.location.hash = '#wiki';
+    render(<App />);
+    expect(screen.getByText(/Wiki panel/i)).toBeInTheDocument();
+  });
+
+  it('renders the Plan panel empty state on #plan', () => {
     window.location.hash = '#plan';
     render(<App />);
-    expect(screen.getByText(/Plan panel/i)).toBeInTheDocument();
+    expect(screen.getByTestId('plan-panel')).toBeInTheDocument();
+  });
+
+  it('renders the Logs panel on #logs', () => {
+    window.location.hash = '#logs';
+    render(<App />);
+    expect(screen.getByTestId('logs-panel')).toBeInTheDocument();
+  });
+
+  it('renders the Review panel empty state on #review', () => {
+    window.location.hash = '#review';
+    render(<App />);
+    expect(screen.getByTestId('review-panel')).toBeInTheDocument();
   });
 
   it('renders the CheckpointPanel empty state on #checkpoints', () => {
