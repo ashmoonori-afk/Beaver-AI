@@ -85,7 +85,7 @@ Establish the typed, persisted, policy-aware substrate every later phase plugs i
 **Depends on.** P0.S2.
 
 ### Tasks
-1. T1 — choose `better-sqlite3` and add as `core` dep → verify: WAL mode toggles via `PRAGMA journal_mode = WAL`.
+1. T1 — use the built-in `node:sqlite` (sync API) shipped in Node ≥22.5. No native dep needed; engine bumped from ≥20 to ≥22.5 in D1. Verify: WAL mode toggles via `db.exec('PRAGMA journal_mode = WAL')` and reads back as `wal` for a file-backed db.
 2. T2 — write `001_initial.sql` migration with all tables from the schema sketch → verify: applies on empty DB and is idempotent on re-run.
 3. T3 — minimal DAO module (`core/workspace/db.ts`) exposing typed insert/get/update for `runs`, `plans`, `tasks`, `agents`, `events`, `checkpoints`, `costs`, `rate_table` → verify: round-trip test inserts then reads each table.
 4. T4 — events table is append-only at the API level (DAO has no `update_event`) → verify: typecheck refuses an `events.update` call.
