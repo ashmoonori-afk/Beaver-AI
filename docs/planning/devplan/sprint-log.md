@@ -2,6 +2,45 @@
 
 > Append-only record of completed sprints. One entry per sprint.
 
+## [2026-04-27] P1.S1 — Mock CLI harness
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- followups:
+  - Helper signature is `runWithMockCli({ fixturePath, stdin?, allowPartial? })`
+    rather than the doc's `runWithMockCli(adapter, fixturePath)` because no
+    adapter exists yet in S1.1. P1.S2's ClaudeCodeAdapter integration tests
+    will wrap the helper or call it directly via a thin spawn shim — the
+    helper API will be revisited then.
+  - One-time eslint config improvement landed alongside this sprint:
+    added `globals` package + `globals.node` to languageOptions, since
+    every file in this project runs in Node and the previous config
+    left `process` / `Buffer` undefined for plain `.js` files.
+- notes:
+  - 1 commit on `dev/p1.s1-mock-cli-harness`.
+  - File layout (source 166 lines, well under the 200 cap):
+      providers/_test/mock-cli.js               52   plain JS executable
+                                                     (not TS — node spawns
+                                                     it directly without a
+                                                     transpile step).
+      providers/_test/fixture.ts                26   zod-validated loader,
+                                                     pure JSON fixtures.
+      providers/_test/run-with-mock-cli.ts      88   spawns mock-cli, captures
+                                                     stdout JSONL, asserts
+                                                     events match
+                                                     fixture.events; rejects
+                                                     fixtures missing
+                                                     finalResult unless
+                                                     allowPartial.
+      providers/_test/fixtures/{happy, truncated, stdin-required}.json
+  - Tests: 9 (3 fixture loader, 6 helper). Bug-test items met:
+    happy fixture replays deterministically across 100 sequential
+    runs (no flake); truncated fixture rejected with
+    "fixture truncated"; stdin omission triggers event-mismatch
+    error path.
+  - `_test/` is intentionally NOT exported via the public barrel —
+    it is internal test infrastructure (leading underscore signals).
+  - madge --circular: 43 ts files, no cycle.
+
 ## [2026-04-27] P0.S4 — Sandbox policy engine
 
 - exit tests: spaghetti ✓ · bug ✓ · review ✓

@@ -1,0 +1,13 @@
+{
+  "name": "stdin-required",
+  "expectStdinContains": "secret-prompt",
+  "events": [{ "type": "agent.message", "text": "got the prompt" }],
+  "finalResult": {
+    "status": "ok",
+    "summary": "done",
+    "artifacts": [],
+    "usage": { "tokensIn": 1, "tokensOut": 1, "model": "mock-1" },
+    "rawTranscriptPath": "t.jsonl"
+  },
+  "exitCode": 0
+}
