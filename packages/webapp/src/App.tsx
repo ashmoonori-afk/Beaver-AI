@@ -1,11 +1,14 @@
 // Top-level shell. Header (run id badge + nav) + active panel slot.
 // Per-panel components: status panel renders the GoalBox empty state
-// in W.2; bento status comes in W.3; checkpoint / plan / logs / review
-// / wiki land in W.4–W.6.
+// when no run is active, and the Bento grid (W.3) once a runId is set.
+// Checkpoint / plan / logs / review / wiki land in W.4–W.6.
 
-import { useCallback } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
+import { Bento } from './components/Bento.js';
 import { GoalBox } from './components/GoalBox.js';
+import { makeMockTransport } from './hooks/mockTransport.js';
+import { useRunSnapshot, type RunSnapshotTransport } from './hooks/useRunSnapshot.js';
 import { useCurrentPanel, type Panel, PANELS, navigate } from './router.js';
 import { cn } from './lib/utils.js';
 
@@ -47,26 +50,45 @@ function PanelStub({ name }: { name: Panel }) {
   );
 }
 
-function StatusPanel({ onSubmit }: { onSubmit: (goal: string) => void }) {
-  // Sprint W.3 will replace this empty state with the bento grid when
-  // a run is in progress. For W.2 the GoalBox is the entire status panel.
-  return (
-    <section className="flex h-[calc(100vh-4rem)] items-center justify-center">
-      <GoalBox onSubmit={onSubmit} />
-    </section>
-  );
+interface StatusPanelProps {
+  activeRunId: string | null;
+  transport: RunSnapshotTransport;
+  onSubmit: (goal: string) => void;
+}
+
+function StatusPanel({ activeRunId, transport, onSubmit }: StatusPanelProps) {
+  const snapshot = useRunSnapshot(activeRunId, transport);
+  if (!activeRunId || !snapshot) {
+    return (
+      <section className="flex h-[calc(100vh-4rem)] items-center justify-center">
+        <GoalBox onSubmit={onSubmit} />
+      </section>
+    );
+  }
+  return <Bento snapshot={snapshot} />;
 }
 
 export interface AppProps {
   /** Caller wires this to the upstream run-start path. Tests inject a
    *  spy. The Tauri shell (4D.1) wires it to invoke('runs.start', …). */
   onGoal?: (goal: string) => void;
+  /** Test seam: inject a stub transport. Defaults to the mock that walks
+   *  PLANNING -> EXECUTING -> COMPLETED so the W.3 demo animates. */
+  transport?: RunSnapshotTransport;
 }
 
-export default function App({ onGoal }: AppProps = {}) {
+export default function App({ onGoal, transport }: AppProps = {}) {
   const panel = useCurrentPanel();
+  const [activeGoal, setActiveGoal] = useState<string | null>(null);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const resolvedTransport = useMemo(
+    () => transport ?? makeMockTransport(activeGoal ?? ''),
+    [transport, activeGoal],
+  );
   const handleGoal = useCallback(
     (goal: string) => {
+      setActiveGoal(goal);
+      setActiveRunId(`r-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
       if (onGoal) onGoal(goal);
     },
     [onGoal],
@@ -81,7 +103,15 @@ export default function App({ onGoal }: AppProps = {}) {
         <Nav active={panel} />
       </header>
       <main className="px-6">
-        {panel === 'status' ? <StatusPanel onSubmit={handleGoal} /> : <PanelStub name={panel} />}
+        {panel === 'status' ? (
+          <StatusPanel
+            activeRunId={activeRunId}
+            transport={resolvedTransport}
+            onSubmit={handleGoal}
+          />
+        ) : (
+          <PanelStub name={panel} />
+        )}
       </main>
     </div>
   );
