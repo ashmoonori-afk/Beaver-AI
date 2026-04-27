@@ -2,6 +2,43 @@
 
 > Append-only record of completed sprints. One entry per sprint.
 
+## [2026-04-27] P0.S3 — SQLite migration + DAO
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- followups:
+  - `node:sqlite` emits an `ExperimentalWarning` on Node 22/23/24 even
+    though the API is stable enough for our use. Cosmetic; revisit
+    when Node marks it stable (likely 26 LTS).
+  - DAOs return row shapes (`*Row` zod schemas) that mirror the SQL
+    columns rather than the P0.S2 domain types. The two layers will
+    converge in P0.S4 mappers (Task -> tasks row, etc.); v0.1 keeps
+    them distinct so DAO is purely persistence and never reaches into
+    domain semantics.
+- notes:
+  - 4 commits on `dev/p0.s3-sqlite-dao` (foundation + 9 DAOs + barrel +
+    durability tests + this entry).
+  - **Decision amendment in flight**: D1 bumped from `Node ≥20 LTS` to
+    `Node ≥22.5 LTS` so we can use the built-in `node:sqlite` and avoid
+    fragile native bindings on Windows / mixed CI. CI workflow node-version
+    20 -> 22; @types/node 20 -> 22. Recorded in commit
+    `[P0.S3] use node:sqlite, bump engines to >=22.5`.
+  - 3 sub-agents dispatched in parallel for the 9 DAO files (one agent per
+    3-table group). Each was given the table SQL, the API to expose, the
+    test pattern, and the file-size cap; they wrote the files, ran
+    tsc/lint/format/test locally, and reported back. The orchestrator
+    integrated barrels + durability tests + the commit.
+  - Schema & sizes:
+      foundation:    db.ts 37 / migrate.ts 65 / 001_initial.sql 121
+      DAOs (avg 64): runs 55 / tasks 61 / agents 61 / plans 70 /
+                     checkpoints 61 / costs 82 / events 61 /
+                     rate_table 82 / projects 44
+      tests:         53 DAO tests + 3 durability tests + 4 foundation tests
+                     + 2 barrel-smoke tests = 62 new (111 total).
+  - madge --circular: 39 ts files, no cycle.
+  - T4 events append-only: enforced structurally (no updateEvent /
+    deleteEvent exported anywhere — verified at runtime in events.test.ts
+    and in core/index.test.ts on the public barrel).
+
 ## [2026-04-27] P0.S2 — Core types & zod schemas
 
 - exit tests: spaghetti ✓ · bug ✓ · review ✓
