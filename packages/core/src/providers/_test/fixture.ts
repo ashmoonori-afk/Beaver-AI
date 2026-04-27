@@ -16,6 +16,8 @@ export const FixtureSchema = z.object({
   exitCode: z.number().int().default(0),
   /** When set, mock CLI exits 3 if its stdin does not include this substring. */
   expectStdinContains: z.string().optional(),
+  /** Delay between successive events on stdout (ms). 0 = no delay. */
+  delayBetweenEventsMs: z.number().int().nonnegative().default(0),
 });
 export type Fixture = z.infer<typeof FixtureSchema>;
 

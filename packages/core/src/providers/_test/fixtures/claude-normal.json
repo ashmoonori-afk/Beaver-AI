@@ -1,0 +1,18 @@
+{
+  "name": "claude-normal",
+  "events": [
+    { "type": "message_delta", "text": "Reading workspace... " },
+    { "type": "tool_use", "name": "shell", "input": { "cmd": "ls" } },
+    { "type": "tool_result", "name": "shell", "output": "README.md\n" },
+    { "type": "message_delta", "text": "Wrote hello.txt." },
+    { "type": "usage", "tokensIn": 80, "tokensOut": 12, "model": "test-model" },
+    { "type": "stop", "reason": "end_turn" }
+  ],
+  "finalResult": {
+    "status": "ok",
+    "summary": "wrote hello.txt",
+    "artifacts": [],
+    "usage": { "tokensIn": 80, "tokensOut": 12, "model": "test-model" },
+    "rawTranscriptPath": ".beaver-transcript.jsonl"
+  }
+}

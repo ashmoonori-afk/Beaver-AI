@@ -2,6 +2,63 @@
 
 > Append-only record of completed sprints. One entry per sprint.
 
+## [2026-04-27] P1.S2 — ClaudeCodeAdapter (spawn / parse / kill / budget)
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- followups:
+  - Adapter currently uses caller-supplied `prompt` and `systemPrompt`
+    via stdin. Real `claude` CLI takes `--print "<prompt>"` or similar
+    instead of stdin; the production wiring will diverge here in P1.S3
+    when the PreToolUse hook lands and we settle the actual CLI surface.
+  - `summary` is the first 500 chars of streamed message_delta text.
+    Good enough for v0.1; the orchestrator's `summarizer` role (P0.S2
+    deferred / P2.S0) will produce the user-facing summary.
+- notes:
+  - 1 commit on `dev/p1.s2-claude-code-adapter`.
+  - Source layout (392 lines across 6 files):
+      providers/claude-code/protocol.ts   48   zod discriminated union
+                                               of {message_delta, tool_use,
+                                               tool_result, usage, stop}.
+      providers/claude-code/parse.ts      51   parseLine + toAgentEvent.
+                                               Translation is a switch on
+                                               the discriminated union;
+                                               unknown line types return
+                                               null so callers can ignore
+                                               richer real-CLI variants.
+      providers/claude-code/spawn.ts      72   spawnClaudeCli({cliPath,
+                                               args, cwd, stdin, signal})
+                                               -> {child, lines, stderr,
+                                               exit}. Pure plumbing — no
+                                               event semantics.
+      providers/claude-code/kill.ts       55   SIGTERM, escalate to SIGKILL
+                                               after 2s, hard deadline 5s.
+                                               No-op on already-exited child.
+      providers/claude-code/adapter.ts   140   ClaudeCodeAdapter class
+                                               implementing ProviderAdapter.
+                                               Wires spawn + parse + kill
+                                               + cost. Tracks usage per
+                                               event, aborts on budget
+                                               cap, on AbortSignal, or
+                                               on timeoutMs. Writes
+                                               .beaver-transcript.jsonl.
+      budget/cost.ts                      26   computeCost helper using
+                                               rate_table.
+  - mock-cli.js extended with `delayBetweenEventsMs` so claude-slow.json
+    can sit between events and trigger the adapter's wall-clock timeout.
+  - Tests: 31 new (260 total). Coverage:
+      protocol parsing per known event type + null on unknown
+      switch translation per variant + custom source override
+      spawn yields one stdout line per JSONL chunk + stderr captured
+      kill terminates a slow child; no-op if already exited
+      adapter happy path: status=ok + usage merged + transcript NDJSON
+      adapter budget: $0.5 cap trips after 3 turns of 100/100 tokens
+      adapter timeout: 1s timeout on a 5s fixture -> status=timeout
+      cost helper: rate_table conversion + missing-rate error
+  - Spaghetti gates: spawn / parse / kill in 3 separate files; no
+    imports from core/orchestrator/; event translation switch on
+    discriminated union (no string-typing); madge clean (49 ts files);
+    no console.* in adapter source.
+
 ## [2026-04-27] P1.S1 — Mock CLI harness
 
 - exit tests: spaghetti ✓ · bug ✓ · review ✓

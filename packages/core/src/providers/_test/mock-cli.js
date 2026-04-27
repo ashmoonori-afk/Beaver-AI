@@ -40,11 +40,26 @@ process.stdin.on('end', () => {
     process.exit(3);
   }
 
-  for (const event of fixture.events ?? []) {
-    process.stdout.write(JSON.stringify(event) + '\n');
+  const delay = Number(fixture.delayBetweenEventsMs) || 0;
+  let i = 0;
+  const events = fixture.events ?? [];
+
+  function emitNext() {
+    if (i < events.length) {
+      process.stdout.write(JSON.stringify(events[i]) + '\n');
+      i++;
+      if (delay > 0) {
+        setTimeout(emitNext, delay);
+      } else {
+        emitNext();
+      }
+    } else {
+      if (fixture.finalResult !== undefined) {
+        process.stdout.write(JSON.stringify({ kind: 'final', result: fixture.finalResult }) + '\n');
+      }
+      process.exit(fixture.exitCode ?? 0);
+    }
   }
-  if (fixture.finalResult !== undefined) {
-    process.stdout.write(JSON.stringify({ kind: 'final', result: fixture.finalResult }) + '\n');
-  }
-  process.exit(fixture.exitCode ?? 0);
+
+  emitNext();
 });

@@ -25,6 +25,16 @@ export * from './agent-runtime/schema.js';
 export * from './sandbox/patterns.js';
 export * from './sandbox/classify.js';
 
+// budget/cost (rate_table -> USD helper)
+export * from './budget/cost.js';
+
+// providers/claude-code/
+export * from './providers/claude-code/protocol.js';
+export * from './providers/claude-code/parse.js';
+export * from './providers/claude-code/spawn.js';
+export * from './providers/claude-code/kill.js';
+export * from './providers/claude-code/adapter.js';
+
 // workspace/ (SQLite ledger)
 export * from './workspace/db.js';
 export * from './workspace/migrate.js';
