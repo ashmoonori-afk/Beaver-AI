@@ -72,7 +72,9 @@ export class CodexAdapter implements ProviderAdapter {
     // the prompt as the last positional arg. Tests inject defaultArgs
     // (mock-cli + fixture) and that path bypasses these production defaults.
     const productionMode = this.opts.defaultArgs === undefined;
-    const args = productionMode ? ['exec', '--json'] : [...(this.opts.defaultArgs ?? [])];
+    const args = productionMode
+      ? ['exec', '--json', '--sandbox', 'workspace-write', '--ask-for-approval', 'never']
+      : [...(this.opts.defaultArgs ?? [])];
     const transcriptPath = path.join(opts.workdir, '.beaver-transcript.jsonl');
 
     const transcript: AgentEvent[] = [];

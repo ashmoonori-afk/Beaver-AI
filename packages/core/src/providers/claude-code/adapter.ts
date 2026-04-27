@@ -61,7 +61,14 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     const args =
       this.opts.defaultArgs !== undefined
         ? [...this.opts.defaultArgs]
-        : ['--print', '--output-format', 'stream-json', '--verbose'];
+        : [
+            '--print',
+            '--output-format',
+            'stream-json',
+            '--verbose',
+            '--permission-mode',
+            'acceptEdits',
+          ];
     // Production path: pass the prompt as the last positional arg
     // (Claude `claude --print "<prompt>"` accepts it). Test path: defaultArgs
     // already includes the fixture path; the prompt is unused by mock-cli.

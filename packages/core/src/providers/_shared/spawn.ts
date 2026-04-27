@@ -3,6 +3,7 @@
 // Per-provider stream parsing lives in <provider>/parse.ts.
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 
 export interface SpawnAdapterOptions {
@@ -30,16 +31,30 @@ export interface SpawnedAdapter {
   exit: Promise<number | null>;
 }
 
+export interface SpawnTarget {
+  command: string;
+  argsPrefix: string[];
+}
+
+export function resolveSpawnTarget(cliPath: string): SpawnTarget {
+  if (process.platform !== 'win32') return { command: cliPath, argsPrefix: [] };
+  if (path.isAbsolute(cliPath)) return { command: cliPath, argsPrefix: [] };
+  if (cliPath.includes('\\') || cliPath.includes('/')) return { command: cliPath, argsPrefix: [] };
+  if (path.extname(cliPath).length > 0) return { command: cliPath, argsPrefix: [] };
+
+  const shim = findOnPath(`${cliPath}.cmd`);
+  const npmTarget = shim ? resolveKnownNpmShim(cliPath, shim) : null;
+  if (npmTarget) return npmTarget;
+  return { command: `${cliPath}.cmd`, argsPrefix: [] };
+}
+
 export function resolveSpawnCommand(cliPath: string): string {
-  if (process.platform !== 'win32') return cliPath;
-  if (path.isAbsolute(cliPath)) return cliPath;
-  if (cliPath.includes('\\') || cliPath.includes('/')) return cliPath;
-  if (path.extname(cliPath).length > 0) return cliPath;
-  return `${cliPath}.cmd`;
+  return resolveSpawnTarget(cliPath).command;
 }
 
 export function spawnAdapterCli(opts: SpawnAdapterOptions): SpawnedAdapter {
-  const child = spawn(resolveSpawnCommand(opts.cliPath), opts.args ?? [], {
+  const target = resolveSpawnTarget(opts.cliPath);
+  const child = spawn(target.command, [...target.argsPrefix, ...(opts.args ?? [])], {
     cwd: opts.cwd,
     env: opts.env ? { ...process.env, ...opts.env } : process.env,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -77,4 +92,27 @@ export function spawnAdapterCli(opts: SpawnAdapterOptions): SpawnedAdapter {
     stderr: () => Buffer.concat(stderrChunks).toString('utf8'),
     exit,
   };
+}
+
+function findOnPath(fileName: string): string | null {
+  const pathEnv = process.env.PATH ?? '';
+  for (const dir of pathEnv.split(path.delimiter)) {
+    if (dir.length === 0) continue;
+    const candidate = path.join(dir, fileName);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function resolveKnownNpmShim(cliPath: string, shimPath: string): SpawnTarget | null {
+  const baseDir = path.dirname(shimPath);
+  if (cliPath === 'claude') {
+    const exe = path.join(baseDir, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe');
+    if (fs.existsSync(exe)) return { command: exe, argsPrefix: [] };
+  }
+  if (cliPath === 'codex') {
+    const js = path.join(baseDir, 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
+    if (fs.existsSync(js)) return { command: process.execPath, argsPrefix: [js] };
+  }
+  return null;
 }

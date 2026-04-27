@@ -7,7 +7,13 @@ import path from 'node:path';
 import { Command } from 'commander';
 
 import { Beaver } from 'beaver-ai';
-import { closeDb, listRunsByProject, openDb } from '@beaver-ai/core';
+import {
+  closeDb,
+  listRunsByProject,
+  openDb,
+  updateRunStatus,
+  type AgentEvent,
+} from '@beaver-ai/core';
 
 import { color } from '../render/colors.js';
 import { printerr, println, resolveDbPath } from './_shared.js';
@@ -26,6 +32,22 @@ function activeRunId(rootPath: string): string | null {
   }
 }
 
+function abortRun(runId: string): void {
+  const db = openDb({ path: resolveDbPath() });
+  try {
+    updateRunStatus(db, runId, 'ABORTED');
+  } finally {
+    closeDb(db);
+  }
+}
+
+function agentText(event: AgentEvent): string | null {
+  if (event.type !== 'agent.message') return null;
+  if (typeof event.payload !== 'object' || event.payload === null) return null;
+  const text = (event.payload as { text?: unknown }).text;
+  return typeof text === 'string' && text.trim().length > 0 ? text.trim() : null;
+}
+
 export async function runRun(argv: string[]): Promise<number> {
   // Variadic <goal...> so users can type unquoted multi-word goals or
   // quoted goals where the shell may have split inner quotes. We rejoin
@@ -35,6 +57,8 @@ export async function runRun(argv: string[]): Promise<number> {
     .argument('<goal...>', 'natural-language goal (multi-word OK)')
     .option('--no-server', 'headless mode (mandatory in v0.1)')
     .option('--server', 'launch the local web server (Phase 4 — not landed)')
+    .option('--replace-active', 'abort an existing active run before starting')
+    .option('--auto-approve-final-review', 'auto-approve the final-review checkpoint')
     .exitOverride();
   try {
     cmd.parse(argv, { from: 'user' });
@@ -42,7 +66,11 @@ export async function runRun(argv: string[]): Promise<number> {
     printerr(`run: ${(e as Error).message}`);
     return 2;
   }
-  const opts = cmd.opts<{ server?: boolean }>();
+  const opts = cmd.opts<{
+    autoApproveFinalReview?: boolean;
+    replaceActive?: boolean;
+    server?: boolean;
+  }>();
   if (opts.server) {
     printerr(color.warn('run: --server: Phase 4 not landed yet; use --no-server'));
     return 2;
@@ -53,17 +81,41 @@ export async function runRun(argv: string[]): Promise<number> {
     return 2;
   }
   const cwd = process.cwd();
+  println(color.dim(`run: goal = ${goal}`));
   const active = activeRunId(cwd);
   if (active) {
-    printerr(
-      color.error(
-        `run: run already in progress (id=${active}); use 'beaver resume ${active}' or 'beaver abort ${active}'`,
-      ),
-    );
-    return 1;
+    if (opts.replaceActive) {
+      abortRun(active);
+      println(color.warn(`run: aborted previous active run ${active}`));
+    } else {
+      printerr(
+        color.error(
+          `run: run already in progress (id=${active}); use 'beaver resume ${active}' or 'beaver abort ${active}'`,
+        ),
+      );
+      return 1;
+    }
   }
-  const beaver = new Beaver({ rootPath: cwd, autoApproveFinalReview: false });
+  const beaver = new Beaver({
+    rootPath: cwd,
+    autoApproveFinalReview: opts.autoApproveFinalReview === true,
+    onAgentEvent: (() => {
+      let lastText = '';
+      return (event: AgentEvent) => {
+        const text = agentText(event);
+        if (!text || text === lastText) return;
+        lastText = text;
+        println('');
+        println(color.dim('agent:'));
+        println(text);
+      };
+    })(),
+  });
   try {
+    println(color.dim('run: planning and dispatching agent...'));
+    if (opts.autoApproveFinalReview) {
+      println(color.dim('run: final review will be auto-approved for launcher mode'));
+    }
     const result = await beaver.run({ goal });
     println(color.success(`run: ${result.runId} → ${result.finalState}`));
     return result.finalState === 'COMPLETED' ? 0 : 1;

@@ -11,6 +11,7 @@ import path from 'node:path';
 import { Command } from 'commander';
 
 import { Beaver } from 'beaver-ai';
+import { resolveSpawnTarget } from '@beaver-ai/core';
 
 import { color } from '../render/colors.js';
 import { printerr, println } from './_shared.js';
@@ -19,17 +20,12 @@ function isGitRepo(dir: string): boolean {
   return fs.existsSync(path.join(dir, '.git'));
 }
 
-function resolveCommand(cli: string): string {
-  if (process.platform !== 'win32') return cli;
-  if (path.extname(cli).length > 0) return cli;
-  return `${cli}.cmd`;
-}
-
 function ping(cli: string): Promise<boolean> {
   return new Promise((resolve) => {
+    const target = resolveSpawnTarget(cli);
     let child;
     try {
-      child = spawn(resolveCommand(cli), ['--version'], { stdio: 'ignore' });
+      child = spawn(target.command, [...target.argsPrefix, '--version'], { stdio: 'ignore' });
     } catch {
       resolve(false);
       return;

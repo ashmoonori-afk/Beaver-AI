@@ -1,9 +1,11 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, it, expect } from 'vitest';
 
-import { resolveSpawnCommand, spawnAdapterCli } from './spawn.js';
+import { resolveSpawnCommand, resolveSpawnTarget, spawnAdapterCli } from './spawn.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOCK_CLI = path.join(HERE, '..', '_test', 'mock-cli.js');
@@ -12,13 +14,30 @@ const FX_DIR = path.join(HERE, '..', '_test', 'fixtures');
 describe('spawnAdapterCli', () => {
   it('resolves bare Windows commands to .cmd shims', () => {
     const actualPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    const originalPath = process.env.PATH;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beaver-spawn-resolve-'));
+    fs.mkdirSync(path.join(tmp, 'node_modules', '@anthropic-ai', 'claude-code', 'bin'), {
+      recursive: true,
+    });
+    fs.writeFileSync(path.join(tmp, 'claude.cmd'), '@echo off\n', 'utf8');
+    fs.writeFileSync(
+      path.join(tmp, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe'),
+      '',
+      'utf8',
+    );
     Object.defineProperty(process, 'platform', { value: 'win32' });
+    process.env.PATH = tmp;
     try {
-      expect(resolveSpawnCommand('claude')).toBe('claude.cmd');
+      expect(resolveSpawnCommand('claude')).toBe(
+        path.join(tmp, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe'),
+      );
       expect(resolveSpawnCommand('codex.cmd')).toBe('codex.cmd');
       expect(resolveSpawnCommand(process.execPath)).toBe(process.execPath);
+      expect(resolveSpawnTarget('codex.cmd')).toEqual({ command: 'codex.cmd', argsPrefix: [] });
     } finally {
       if (actualPlatform) Object.defineProperty(process, 'platform', actualPlatform);
+      process.env.PATH = originalPath;
+      fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
 

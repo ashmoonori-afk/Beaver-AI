@@ -21,6 +21,7 @@ import {
   openDb,
   runMigrations,
   runOrchestrator,
+  type AgentEvent,
   type Db,
   type Plan,
   type ProviderAdapter,
@@ -40,6 +41,8 @@ export interface BeaverOptions {
   /** Auto-answer the final-review checkpoint with 'approve'. Default true
    *  for the library convenience API; CLI sets false and prompts the user. */
   autoApproveFinalReview?: boolean;
+  /** Stream raw agent events to callers such as the CLI. */
+  onAgentEvent?: (event: AgentEvent) => void;
 }
 
 export interface RunRequest {
@@ -127,7 +130,12 @@ export class Beaver {
           runId,
           goal: req.goal,
           plan,
-          executor: async () => adapter.run({ prompt: req.goal, workdir: this.rootPath }),
+          executor: async () =>
+            adapter.run({
+              prompt: req.goal,
+              workdir: this.rootPath,
+              ...(this.opts.onAgentEvent !== undefined && { onEvent: this.opts.onAgentEvent }),
+            }),
           pollTimeoutMs: 30_000,
         });
         return { runId, finalState: result.finalState };

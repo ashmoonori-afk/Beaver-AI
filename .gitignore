@@ -32,6 +32,11 @@ coverage/
 
 # Beaver runtime state (will appear once code lands)
 .beaver/
+.beaver-transcript.jsonl
+beaver-launcher-last.log
 
 # Runtime artifacts from orchestrator tests
 runs/
+
+# User-facing generated outputs from launcher runs
+OUTPUT/
