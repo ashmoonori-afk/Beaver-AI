@@ -104,6 +104,11 @@ const BACKEND_TERMS = [
 ] as const;
 
 export function providerForGoal(goal: string): 'claude-code' | 'codex' {
+  // Env override always wins. Lets the launcher pin a provider when one
+  // upstream (e.g. codex usage limit) is unavailable.
+  const envOverride = process.env.BEAVER_PROVIDER;
+  if (envOverride === 'claude-code' || envOverride === 'codex') return envOverride;
+
   const normalized = goal.toLowerCase();
   const frontendScore = FRONTEND_TERMS.filter((term) => normalized.includes(term)).length;
   const backendScore = BACKEND_TERMS.filter((term) => normalized.includes(term)).length;

@@ -8,3 +8,7 @@ pnpm-lock.yaml
 # Authored docs preserve their own formatting (tables, ASCII diagrams).
 docs/
 CLAUDE.md
+
+# Beaver-generated user artifacts.
+OUTPUT/
+runs/

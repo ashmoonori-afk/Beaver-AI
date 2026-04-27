@@ -12,6 +12,10 @@ export default tseslint.config(
       '**/.beaver/**',
       '**/coverage/**',
       'pnpm-lock.yaml',
+      // Beaver-generated user artifacts (browser HTML/JS, etc).
+      // These belong to the user, not the source tree.
+      'OUTPUT/**',
+      'runs/**',
     ],
   },
   js.configs.recommended,

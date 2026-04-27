@@ -57,12 +57,14 @@ export function spawnAdapterCli(opts: SpawnAdapterOptions): SpawnedAdapter {
   const child = spawn(target.command, [...target.argsPrefix, ...(opts.args ?? [])], {
     cwd: opts.cwd,
     env: opts.env ? { ...process.env, ...opts.env } : process.env,
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: [opts.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     ...(opts.signal !== undefined && { signal: opts.signal }),
   });
 
-  if (opts.stdin !== undefined) child.stdin?.write(opts.stdin);
-  child.stdin?.end();
+  if (opts.stdin !== undefined) {
+    child.stdin?.write(opts.stdin);
+    child.stdin?.end();
+  }
 
   const stderrChunks: Buffer[] = [];
   child.stderr?.on('data', (c: Buffer) => stderrChunks.push(c));

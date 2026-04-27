@@ -5,7 +5,13 @@
 set -e
 cd "$(dirname "$0")"
 
+# Pin the provider to claude-code by default. Codex is opt-in (export
+# BEAVER_PROVIDER=codex before launching).
+: "${BEAVER_PROVIDER:=claude-code}"
+export BEAVER_PROVIDER
+
 echo "Beaver AI v0.1"
+echo "Provider: $BEAVER_PROVIDER"
 echo
 
 if [ ! -d node_modules ]; then

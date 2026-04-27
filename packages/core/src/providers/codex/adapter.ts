@@ -73,7 +73,7 @@ export class CodexAdapter implements ProviderAdapter {
     // (mock-cli + fixture) and that path bypasses these production defaults.
     const productionMode = this.opts.defaultArgs === undefined;
     const args = productionMode
-      ? ['exec', '--json', '--sandbox', 'workspace-write', '--ask-for-approval', 'never']
+      ? ['exec', '--json', '--full-auto', '--sandbox', 'workspace-write']
       : [...(this.opts.defaultArgs ?? [])];
     const transcriptPath = path.join(opts.workdir, '.beaver-transcript.jsonl');
 

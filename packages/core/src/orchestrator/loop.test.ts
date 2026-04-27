@@ -66,6 +66,14 @@ function okResult(): RunResult {
   };
 }
 
+function failedResult(): RunResult {
+  return {
+    ...okResult(),
+    status: 'failed',
+    summary: 'adapter failed before producing output',
+  };
+}
+
 async function approveSoon(checkpointId: string): Promise<void> {
   // Wait briefly so the orchestrator has inserted the checkpoint, then approve.
   await new Promise((r) => setTimeout(r, 50));
@@ -162,6 +170,25 @@ describe('runOrchestrator — single-task plan', () => {
 
     const verdicts = listEventsByType(db, 'r1', 'review.verdict');
     expect(verdicts.length).toBe(1);
+  });
+
+  it('fails before review when the executor returns a non-ok status', async () => {
+    const ctx = {
+      db,
+      runId: 'r1',
+      goal: 'g',
+      plan: plan([task('t1')]),
+      runsRoot: workdir,
+      pollIntervalMs: 25,
+      pollTimeoutMs: 200,
+      executor: async (): Promise<RunResult> => failedResult(),
+    };
+
+    const result = await runOrchestrator(ctx);
+
+    expect(result.finalState).toBe('FAILED');
+    expect(getRun(db, 'r1')?.status).toBe('FAILED');
+    expect(listEventsByType(db, 'r1', 'review.verdict')).toHaveLength(0);
   });
 });
 

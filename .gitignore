@@ -34,6 +34,8 @@ coverage/
 .beaver/
 .beaver-transcript.jsonl
 beaver-launcher-last.log
+beaver-goal-input.txt
+beaver-feedback-input.txt
 
 # Runtime artifacts from orchestrator tests
 runs/

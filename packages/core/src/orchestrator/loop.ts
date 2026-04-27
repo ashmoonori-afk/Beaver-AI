@@ -98,6 +98,16 @@ async function runExecuteReview(ctx: OrchestratorContext, startState: RunState):
 
   state = applyTransition(ctx, state, { type: 'TASK_DISPATCHED' });
   const result = await dispatchTask(ctx, task);
+
+  if (result.status !== 'ok') {
+    const next = applyTransition(ctx, state, {
+      type: 'FAIL',
+      reason: `task-${result.status}: ${result.summary}`,
+    });
+    updateRunStatus(ctx.db, ctx.runId, 'FAILED');
+    return next;
+  }
+
   state = applyTransition(ctx, state, { type: 'TASK_COMPLETED' });
 
   const verdict = await reviewResult(ctx, task.id, result);
@@ -158,7 +168,12 @@ function applyTransition(
     ts: now(),
     source: SOURCE,
     type: 'state.transition',
-    payload_json: JSON.stringify({ from, to, event: event.type }),
+    payload_json: JSON.stringify({
+      from,
+      to,
+      event: event.type,
+      ...('reason' in event ? { reason: event.reason } : {}),
+    }),
   });
   return to;
 }
