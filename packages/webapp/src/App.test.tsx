@@ -53,6 +53,19 @@ describe('<App />', () => {
     expect(screen.getByLabelText('Ask the wiki')).toBeInTheDocument();
   });
 
+  it('opens the help dialog on the "?" header button', () => {
+    render(<App />);
+    expect(screen.queryByTestId('help-dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Open keyboard shortcuts help/i }));
+    expect(screen.getByTestId('help-dialog')).toBeInTheDocument();
+  });
+
+  it('opens the help dialog on the "?" keyboard shortcut', () => {
+    render(<App />);
+    fireEvent.keyDown(window, { key: '?' });
+    expect(screen.getByTestId('help-dialog')).toBeInTheDocument();
+  });
+
   it('renders the Plan panel empty state on #plan', () => {
     window.location.hash = '#plan';
     render(<App />);

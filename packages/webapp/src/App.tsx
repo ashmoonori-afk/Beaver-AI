@@ -9,6 +9,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Bento } from './components/Bento.js';
 import { CheckpointPanel } from './components/CheckpointPanel.js';
 import { GoalBox } from './components/GoalBox.js';
+import { HelpDialog } from './components/HelpDialog.js';
 import { LogsPanel } from './components/LogsPanel.js';
 import { PlanPanel } from './components/PlanPanel.js';
 import { ReviewPanel } from './components/ReviewPanel.js';
@@ -23,6 +24,7 @@ import type { AskWikiTransport } from './hooks/useAskWiki.js';
 import { useCheckpoints, type CheckpointTransport } from './hooks/useCheckpoints.js';
 import { useEvents, type EventsTransport } from './hooks/useEvents.js';
 import { useFinalReview, type FinalReviewTransport } from './hooks/useFinalReview.js';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { usePlanList, type PlanListTransport } from './hooks/usePlanList.js';
 import { useRunSnapshot, type RunSnapshotTransport } from './hooks/useRunSnapshot.js';
 import { useCurrentPanel, type Panel, PANELS, navigate } from './router.js';
@@ -151,8 +153,10 @@ export default function App({
   askWikiTransport,
 }: AppProps = {}) {
   const panel = useCurrentPanel();
+  const [helpOpen, setHelpOpen] = useState(false);
   const [activeGoal, setActiveGoal] = useState<string | null>(null);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  useKeyboardShortcuts({ onHelp: () => setHelpOpen(true) });
   const resolvedTransport = useMemo(
     () => transport ?? makeMockTransport(activeGoal ?? ''),
     [transport, activeGoal],
@@ -192,7 +196,17 @@ export default function App({
           <span className="text-hero text-text-50">Beaver</span>
           <span className="text-caption text-text-500">v0.1</span>
         </div>
-        <Nav active={panel} />
+        <div className="flex items-center gap-3">
+          <Nav active={panel} />
+          <button
+            type="button"
+            onClick={() => setHelpOpen(true)}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-card bg-surface-800 text-caption text-text-300 transition-colors hover:bg-surface-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+            aria-label="Open keyboard shortcuts help"
+          >
+            ?
+          </button>
+        </div>
       </header>
       <main className="px-6">
         {panel === 'status' ? (
@@ -215,6 +229,7 @@ export default function App({
           <PanelStub name={panel} />
         )}
       </main>
+      {helpOpen ? <HelpDialog onClose={() => setHelpOpen(false)} /> : null}
     </div>
   );
 }
