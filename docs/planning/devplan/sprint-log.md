@@ -2,6 +2,49 @@
 
 > Append-only record of completed sprints. One entry per sprint.
 
+## [2026-04-27] P0.S4 — Sandbox policy engine
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- followups:
+  - `npm install` (bare, no pkg arg) is currently allowed by default —
+    it reinstalls package.json deps without opening a new supply-chain
+    surface. Only `npm install <pkg>` triggers the require-confirmation
+    path. Revisit if the orchestrator finds a case where bare reinstall
+    pulls in a fresh transitive.
+  - "any single command that touches more than 100 files" from the
+    require-confirmation table is NOT detectable statically and is
+    deferred. The Codex shim doc (D9) already calls this out as an
+    `agent.shell.bypass-attempt` post-hoc filesystem audit concern.
+- notes:
+  - 1 commit on `dev/p0.s4-sandbox-policy` (single coherent domain — split
+    into 3 source files anyway for separation of concerns).
+  - File layout (source 268 lines, well under the 400 cap):
+      sandbox/patterns.ts   126   16 named patterns; ordered array of
+                                  {id, regex, verdict, reason}; no
+                                  alias renames for Verdict (single
+                                  literal-union type).
+      sandbox/paths.ts       39   pure helpers: resolveAgainst,
+                                  isInsideOrEqual, isSystemRoot,
+                                  effectiveCwd (peels `cd <x> && rest`).
+      sandbox/classify.ts   103   classify(cmd, cwd, worktree) — empty
+                                  -> hard-deny, regex table, then
+                                  path-aware rm-rf check, then
+                                  write-outside-worktree, then allow.
+                                  buildClassifyEvent emits the
+                                  agent.shell.classify shape.
+  - Tests: 87 new (198 total). One test per pattern fixture (T1),
+    table-row tests for hard-deny + require-confirmation, free-pass
+    list (pytest, ls, git diff, ...), all 9 T3 counterexamples, and
+    event-payload shape (T4 — including patternId omission when
+    classify did not attribute one).
+  - Order: regex patterns first so literal `rm -rf /` reports as the
+    documented `rm-rf-system` patternId; the resolved-target check is
+    a fallback that catches `cd / && rm -rf .` after cd-peeling and
+    reports as `rm-rf-system-resolved`.
+  - Pure function verified: no fs / no process / no Date.now reads
+    inside any sandbox source file (grep clean).
+  - madge --circular: 41 ts files, no cycle.
+
 ## [2026-04-27] P0.S3 — SQLite migration + DAO
 
 - exit tests: spaghetti ✓ · bug ✓ · review ✓

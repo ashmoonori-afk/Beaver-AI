@@ -21,6 +21,10 @@ export * from './budget/schema.js';
 // agent-runtime/
 export * from './agent-runtime/schema.js';
 
+// sandbox/
+export * from './sandbox/patterns.js';
+export * from './sandbox/classify.js';
+
 // workspace/ (SQLite ledger)
 export * from './workspace/db.js';
 export * from './workspace/migrate.js';
