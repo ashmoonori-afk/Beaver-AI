@@ -4,7 +4,7 @@
 
 **Doc type:** model
 **Status:** Locked (D9)
-**Last updated:** 2026-04-26 (D10 ripple: Codex shim now blocking for v0.1)
+**Last updated:** 2026-04-27 (Codex shim security posture clarified)
 **See also:** [decisions/locked.md](../decisions/locked.md) (D9), [architecture/provider-adapters.md](../architecture/provider-adapters.md), [architecture/agent-runtime.md](../architecture/agent-runtime.md), [architecture/feedback-channel.md](../architecture/feedback-channel.md)
 
 ---
@@ -101,7 +101,14 @@ Required in v0.1 because the `coder` role runs on Codex (per D10).
 
 If Codex does not expose an equivalent PreToolUse hook, the adapter prepends a **shim directory** to `PATH` inside the agent's environment. The shim contains wrapper scripts for sensitive commands (`rm`, `curl`, `wget`, `npm`, `pip`, `sudo`, `git`) that route through the same policy engine before exec'ing the real binary.
 
-The shim is best-effort — it cannot intercept absolute paths (`/bin/rm …`) or `system()` calls. Mitigations:
+The shim is best-effort — it cannot intercept absolute paths (`/bin/rm ...`) or `system()` calls. This means the Codex path in v0.1 is an audited policy boundary, not a hard sandbox. It is acceptable for the MVP only because:
+
+- agents run in isolated git worktrees;
+- writes outside the worktree are detected by filesystem audit after each agent run;
+- detected bypass attempts are surfaced in events and, when the run can still continue, as `risky-change-confirmation`;
+- OS-level sandboxing remains the v0.2 hardening target.
+
+Mitigations:
 
 - The shim covers the highest-volume risky commands; absolute-path bypass is logged as `agent.shell.bypass-attempt` and treated as a `risky-change-confirmation` checkpoint when detected post-hoc by filesystem audit.
 - Layer 4 (OS sandbox) is the proper long-term defense and is on the v0.2 roadmap.

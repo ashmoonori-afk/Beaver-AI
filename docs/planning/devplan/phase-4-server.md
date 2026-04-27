@@ -25,7 +25,8 @@ Default `beaver run "<goal>"` (no flag) launches the browser, the user sees live
 2. T2 — `GET /api/runs/:runId` returns the snapshot DTO (state, plan version, agents, costs) → verify: matches [app-ui](../../models/app-ui.md) contract.
 3. T3 — `GET /api/runs/:runId/events` SSE: streams new `events` rows; `Last-Event-ID` replay → verify: bug test.
 4. T4 — `GET /api/runs/:runId/plan`, `GET /api/runs/:runId/checkpoints`, `POST /api/checkpoints/:id/answer` → verify: round-trip via `core/feedback/checkpoint`.
-5. T5 — Lifecycle wired into `beaver run` per D13: starts on run start, lingers 60 s past terminal, `--keep-alive` overrides → verify: linger observable in events.
+5. T5 — Local mutation security from app-ui: Host allowlist, CORS deny-by-default, and `X-Beaver-Token` on non-GET routes → verify: missing token, bad Host, and cross-origin POST are rejected.
+6. T6 — Lifecycle wired into `beaver run` per D13: starts on run start, lingers 60 s past terminal, `--keep-alive` overrides → verify: linger observable in events.
 
 ### Spaghetti test
 - Server file does not import any UI/React code.
@@ -36,11 +37,12 @@ Default `beaver run "<goal>"` (no flag) launches the browser, the user sees live
 - Two clients on `/events` simultaneously → both receive every event in order.
 - Disconnect + reconnect with `Last-Event-ID: <n>` → server replays events `> n`.
 - POST to `/checkpoints/<bad-id>/answer` → 404 with the standard error shape.
+- POST to `/api/checkpoints/:id/answer` without `X-Beaver-Token` → 403; checkpoint remains pending.
 - Killing the server mid-SSE → CLI run continues; clients reconnect when server resumes.
 
 ### Code review checklist
 - No `0.0.0.0` bind anywhere (D13 invariant).
-- CORS not opened — same-origin only by virtue of localhost.
+- CORS not opened — same-origin only by virtue of localhost; tests assert no wildcard CORS headers.
 - Request logging records metadata only; full bodies live in `events`.
 
 ---

@@ -4,7 +4,7 @@
 
 **Doc type:** model
 **Status:** Locked (D15)
-**Last updated:** 2026-04-26 (dual-naming added — CLAUDE.md for Claude Code, AGENTS.md for Codex)
+**Last updated:** 2026-04-27 (physical convention file isolation clarified)
 **See also:** [decisions/locked.md](../decisions/locked.md) (D15), [models/agent-operations.md](agent-operations.md), [architecture/agent-runtime.md](../architecture/agent-runtime.md), [models/wiki-system.md](wiki-system.md)
 
 ---
@@ -57,6 +57,8 @@ When Beaver builds an agent's system prompt, it concatenates in this order (top-
 5. **Task prompt** — the `prompt` field from the [plan](plan-format.md) task.
 
 Headers between layers make their origin obvious to the agent (e.g., `## Project conventions (from <repo>/CLAUDE.md)`). Layers are never silently merged into one paragraph.
+
+Physical file rule: Beaver never overwrites a user's root `CLAUDE.md` or `AGENTS.md`. The merged convention file is written only inside the agent-owned worktree control area (for example `<worktree>/.beaver/agent-context/CLAUDE.md`) or passed as an explicit system prompt when the provider supports it. If a provider only auto-discovers convention files at cwd root, Beaver creates a transient untracked file after verifying no user file exists at that path; if a user file exists, Beaver uses prompt injection rather than shadowing it. These generated files are excluded from agent commits.
 
 ## Role addenda (built-in)
 

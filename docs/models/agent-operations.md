@@ -4,7 +4,7 @@
 
 **Doc type:** model
 **Status:** Locked (D10)
-**Last updated:** 2026-04-26 (stall watchdog added; resource limits explicitly deferred)
+**Last updated:** 2026-04-27 (watchdog edge cases and default rationale added)
 **See also:** [decisions/locked.md](../decisions/locked.md) (D10), [architecture/orchestrator.md](../architecture/orchestrator.md), [architecture/agent-runtime.md](../architecture/agent-runtime.md), [architecture/provider-adapters.md](../architecture/provider-adapters.md)
 
 ---
@@ -77,6 +77,8 @@ The summarizer's existence in v0.1 (even before integrator/tester land) is partl
 
 Override via `.beaver/config.json` → `agentOps.timeoutMinutes.<role>`.
 
+These are initial defaults, not measured constants. They are sized for the reference TODO-app flow and will be revisited after the first 10 real reference runs; until then, overrides are the supported escape hatch for unusually slow builds.
+
 ## Stall detection (output watchdog)
 
 Wall-clock alone leaves a stuck agent burning its full budget before being killed. To catch hangs early without OS-level instrumentation, the runtime tracks `lastOutputTs` per agent (every `agent.shell` event, every stdout/stderr chunk, every API stream token bumps it).
@@ -88,6 +90,15 @@ Wall-clock alone leaves a stuck agent burning its full budget before being kille
 | **Action on stall** | Kill the agent; produce `RunResult.status = 'timeout'`; counts toward the per-task retry cap. |
 
 The watchdog is intentionally simple — it does not distinguish "LLM thinking" from "process hung" because in CLI mode every LLM token produces output. False positives are rare; if observed, the threshold is overridable.
+
+Edge cases:
+
+| Scenario | Treatment |
+|----------|-----------|
+| Long build/test process emits stdout or stderr periodically | Each chunk bumps `lastOutputTs`; no stall. |
+| Long build/test process is silent for >120 s | Treated as stalled in v0.1. Agents should prefer verbose build/test flags when available. |
+| Shell command is started and then produces no output because stdout is buffered | Still treated as stalled; v0.1 favors bounded autonomy over waiting indefinitely. |
+| Wall-clock timeout and stall threshold would both fire | The first observed timeout wins; both map to `RunResult.status = 'timeout'` and the same retry budget. |
 
 Override via `.beaver/config.json` → `agentOps.stallThresholdSeconds`.
 

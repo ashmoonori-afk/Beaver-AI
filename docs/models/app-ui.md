@@ -69,7 +69,7 @@ Client subscribes to SSE on mount; falls back to a 3-second polling tick on disc
 /runs/<id>#checkpoints         →  Checkpoint queue
 /runs/<id>#plan                →  Plan view
 /runs/<id>#logs                →  Logs / events
-/runs/<id>#review              →  Final review (only when state ≥ COMPLETED)
+/runs/<id>#review              →  Final review (visible in FINAL_REVIEW_PENDING and COMPLETED)
 ```
 
 ## Browser-launch fallback (D16)

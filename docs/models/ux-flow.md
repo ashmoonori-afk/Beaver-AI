@@ -4,7 +4,7 @@
 
 **Doc type:** model
 **Status:** Locked (D11)
-**Last updated:** 2026-04-26 (D13 ripple: web app primary; CLI watching commands kept for headless)
+**Last updated:** 2026-04-27 (final-review pending state clarified)
 **See also:** [decisions/locked.md](../decisions/locked.md) (D11), [architecture/entry-layer.md](../architecture/entry-layer.md), [architecture/feedback-channel.md](../architecture/feedback-channel.md), [architecture/orchestrator.md](../architecture/orchestrator.md)
 
 ---
@@ -74,7 +74,7 @@ Both surfaces read from the same SQLite ledger.
 
 ## Final review
 
-When the run reaches COMPLETED and the summarizer finishes, Beaver posts a `final-review` checkpoint with:
+When execution/review is done and the summarizer writes `final-report.md`, Beaver enters `FINAL_REVIEW_PENDING` and posts a `final-review` checkpoint with:
 
 - The run goal (verbatim).
 - Plan version history (which versions were produced and why).

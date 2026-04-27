@@ -16,7 +16,7 @@
 3. **Stub `ClaudeCodeAdapter`.** Spawn the real `claude` CLI; verify spawn / parse / kill / budget-abort works end-to-end against a tiny task. Wire the PreToolUse hook to call the policy module from step 2.
 4. **Stub `CodexAdapter`** with PATH-shim sandbox enforcement. Cover `rm`, `curl`, `wget`, `npm`, `pip`, `sudo`, `git`. Verify spawn / parse / kill / budget-abort and shim correctness against the policy engine.
 5. **SQLite migration + DAO layer.** Schema from [architecture/workspace-state.md](../architecture/workspace-state.md) as a migration file; thin DAO that the orchestrator, policy hook, and HTTP server share.
-6. **Bring up `@beaver-ai/server` skeleton.** Fastify on `127.0.0.1`, serves the webapp bundle, exposes SSE at `GET /api/runs/:runId/events` plus `POST /api/checkpoints/:id/answer` (per D16).
+6. **Bring up `@beaver-ai/server` skeleton.** Fastify on `127.0.0.1`, serves the webapp bundle, exposes SSE at `GET /api/runs/:runId/events` plus token-protected `POST /api/checkpoints/:id/answer` (per D16/D13).
 7. **Bring up `@beaver-ai/webapp` skeleton.** React + Vite + Tailwind + shadcn/ui (dark default). Live status panel + checkpoint queue panel are the v0.1 minimum. Hash routing (`#status`, `#checkpoints`).
 8. **Minimum Orchestrator FSM.** Single-task happy path: `planner → coder → reviewer → summarizer`. Bounded-parallel scheduler (default 5) and 2-retry policy from [models/agent-operations.md](../models/agent-operations.md). Run the worked example end-to-end through both the web app and `--no-server` CLI. See [reference/reference-flow.md](../reference/reference-flow.md).
 9. **Wiki ingest stub.** Post-COMPLETED step that updates `<config>/wiki/index.md`, `log.md`, `decisions/<run-id>.md`, `projects/<slug>.md` per [models/wiki-system.md](../models/wiki-system.md). Smallest acceptable v0.1 subset.
@@ -34,4 +34,4 @@
 | 8 | steps 2–5, 6, 7 |
 | 9 | steps 5, 8 |
 
-Q6, Q7 do not block the v0.1 MVP — see [decisions/open-questions.md](../decisions/open-questions.md). Q3 → D9. Q4 → D13. Agent ops locked as D10. UX/UI locked as D11–D13. Personalization + Wiki + agent baseline + app UI tech stack locked as D14–D16.
+Q6, Q7 do not block the v0.1 MVP — see [decisions/open-questions.md](../decisions/open-questions.md). Q3 → D9. Q4 → D13 (localhost-only, no account auth, token-protected mutations). Agent ops locked as D10. UX/UI locked as D11–D13. Personalization + Wiki + agent baseline + app UI tech stack locked as D14–D16.

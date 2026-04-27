@@ -101,7 +101,7 @@
 ### Tasks
 1. T1 — Plan panel: latest plan + version dropdown → verify: render matches `cli/render/plan` output.
 2. T2 — Logs panel: virtualized event list, filter by `source`, `--json` toggle → verify: 10 000 events scroll smoothly.
-3. T3 — Final review panel: rendered only when state ≥ COMPLETED; pulls `final-report.md`, branch list, diff stats → verify: bug test.
+3. T3 — Final review panel: rendered in `FINAL_REVIEW_PENDING` and `COMPLETED`; pulls `final-report.md`, branch list, diff stats → verify: bug test.
 4. T4 — Markdown via `react-markdown`, sanitized → verify: no XSS via crafted markdown.
 
 ### Spaghetti test

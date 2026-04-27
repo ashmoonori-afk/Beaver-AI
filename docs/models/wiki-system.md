@@ -4,7 +4,7 @@
 
 **Doc type:** model
 **Status:** Locked (D14)
-**Last updated:** 2026-04-26
+**Last updated:** 2026-04-27 (ingest failure semantics clarified)
 **See also:** [decisions/locked.md](../decisions/locked.md) (D14), [models/personalization.md](personalization.md), [models/agent-operations.md](agent-operations.md), [models/ux-flow.md](ux-flow.md), [architecture/feedback-channel.md](../architecture/feedback-channel.md)
 
 ---
@@ -51,6 +51,13 @@ After a run reaches a terminal state and the user `approve`s `final-review` (or 
 8. Append a single-line entry to `log.md`.
 
 The wiki-ingest step uses the Claude Code CLI (per D10) like any other orchestrator sub-decision. Budget: a small fixed allowance (default $0.10), separate from the run's own budget — the wiki is meta-work, not user-billable run work.
+
+Failure semantics in v0.1:
+
+- Wiki ingest is best-effort. Failure logs a `wiki.ingest.failed` event and never changes the already-terminal run outcome.
+- Writes are staged to temporary files and renamed into place per file, so a partial ingest cannot corrupt an existing page.
+- If budget is exceeded, Beaver writes no new wiki pages, logs the failure, and continues.
+- `log.md` is appended only after required page writes for that ingest have succeeded; it is the marker that an ingest completed.
 
 ### Query (during a run)
 

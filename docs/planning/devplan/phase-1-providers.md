@@ -104,7 +104,7 @@ Two production adapters that satisfy `ProviderAdapter` from P0.S2, route shell c
 
 ## Sprint 1.4: CodexAdapter + PATH shim
 
-**Goal.** `CodexAdapter` for the `coder` and `integrator` roles, with a PATH-shim variant of the same sandbox enforcement (since Codex lacks an equivalent PreToolUse hook).
+**Goal.** `CodexAdapter` for the `coder` role (and the deferred `integrator` role later), with a PATH-shim variant of the same sandbox enforcement (since Codex lacks an equivalent PreToolUse hook).
 **Depends on.** P1.S2, P1.S3.
 
 ### Tasks
@@ -112,6 +112,7 @@ Two production adapters that satisfy `ProviderAdapter` from P0.S2, route shell c
 2. T2 — `core/providers/codex/shim/` — wrapper scripts for `rm`, `curl`, `wget`, `npm`, `pip`, `sudo`, `git`. Each exec's the real binary after `classify` returns allow → verify: shim wrapping `rm -rf /` blocks the call.
 3. T3 — Adapter prepends `<worktree>/.beaver/shim/` to `PATH` for the spawned Codex process → verify: agent's `which rm` resolves to the shim.
 4. T4 — Document the bypass surface (absolute paths, `system()` calls) in code comments and link to v0.2 OS-sandbox roadmap → verify: comment present in `shim/README.md`.
+5. T5 — Filesystem audit after each Codex agent run detects writes outside the worktree and emits `agent.shell.bypass-attempt` before the run can be approved → verify: audit fixture creates an outside-worktree marker and records the event.
 
 ### Spaghetti test
 - Shim scripts are one file per command, ≤ 30 lines each.
@@ -119,7 +120,7 @@ Two production adapters that satisfy `ProviderAdapter` from P0.S2, route shell c
 
 ### Bug test
 - `rm -rf /` via shim PATH → blocked with `policy-violation`.
-- `/bin/rm -rf /tmp/x` via absolute path → not blocked (acknowledged limitation), event records the bypass attempt.
+- `/bin/rm -rf /tmp/x` via absolute path → not blocked by PATH shim (acknowledged limitation), post-run audit records the bypass attempt.
 - 100 sequential allowed calls via shim → adds < 100 ms total overhead (shell wrapper cost).
 
 ### Code review checklist

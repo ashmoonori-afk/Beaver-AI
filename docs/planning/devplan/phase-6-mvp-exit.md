@@ -111,7 +111,7 @@ All five exit criteria from [mvp-scope](../mvp-scope.md) pass on a clean machine
 ### Tasks
 1. T1 — Run the five [mvp-scope](../mvp-scope.md) exit criteria as scripted checks → verify: all pass on a fresh CI runner.
 2. T2 — Doc audit: every locked decision (D1–D16) has a doc page and is linked from `INDEX.md` → verify: link checker.
-3. T3 — Cross-platform smoke: macOS + Linux + (best-effort) Windows-WSL → verify: all three install, run, complete the worked example.
+3. T3 — Cross-platform smoke: macOS + Linux + WSL2 Ubuntu are blocking; Windows native is non-blocking best-effort until provider CLI and worktree behavior are validated → verify: blocking platforms install, run, complete the worked example.
 4. T4 — Tag `v0.1.0`, write release notes summarizing locked decisions and exit-criteria evidence → verify: release artifact present.
 
 ### Spaghetti test
@@ -121,7 +121,8 @@ All five exit criteria from [mvp-scope](../mvp-scope.md) pass on a clean machine
 ### Bug test
 - Fresh clone on macOS Sonoma → install / build / worked example clean.
 - Fresh clone on Ubuntu LTS → same.
-- WSL2 Ubuntu → same (Windows native is best-effort, not blocking).
+- WSL2 Ubuntu → same and blocking.
+- Windows native → install/build smoke only; failures are recorded but do not block v0.1 unless they affect WSL2.
 
 ### Code review checklist
 - No `// TODO` markers in `core/` paths (move open work to GitHub issues with the `v0.2` label).

@@ -11,7 +11,7 @@
 
 ## Phase goal
 
-A run started programmatically (via the library API) goes from goal → plan-v1 → coder → reviewer → summarizer → COMPLETED, with all events persisted, all budgets respected, and the stall watchdog active. No CLI or web UI yet.
+A run started programmatically (via the library API) goes from goal → plan-v1 → coder → reviewer → summarizer → FINAL_REVIEW_PENDING → COMPLETED after final-review approval, with all events persisted, all budgets respected, and the stall watchdog active. No CLI or web UI yet.
 
 ## Phase exit criteria
 
@@ -80,12 +80,12 @@ A run started programmatically (via the library API) goes from goal → plan-v1 
 
 ## Sprint 2.3: Orchestrator FSM
 
-**Goal.** The deterministic top-level state machine: INITIALIZED → PLANNING → EXECUTING → REVIEWING → INTEGRATING → COMPLETED, with checkpoint emission at the documented boundaries.
+**Goal.** The deterministic top-level state machine: INITIALIZED → PLANNING → EXECUTING → REVIEWING → FINAL_REVIEW_PENDING → COMPLETED, with checkpoint emission at the documented boundaries. INTEGRATING is the target-model state for v0.2+ multi-task runs.
 **Depends on.** P0.S3, P2.S1, P2.S2.
 
 ### Tasks
 1. T1 — `core/orchestrator/fsm.ts`: state enum, transition function `(state, event) → next`, terminal-state set → verify: invalid transitions throw with the from/to pair.
-2. T2 — `core/orchestrator/loop.ts`: drives the FSM by dispatching agent runs and collecting results. Single-task path only in this sprint → verify: an empty plan transitions PLANNING → COMPLETED.
+2. T2 — `core/orchestrator/loop.ts`: drives the FSM by dispatching agent runs and collecting results. Single-task path only in this sprint → verify: an empty plan transitions PLANNING → FINAL_REVIEW_PENDING, then COMPLETED after approval.
 3. T3 — Plan persistence: each plan version written to `runs/<run-id>/plan/plan-v<N>.json` referenced by the `plans` table → verify: lineage retrievable.
 4. T4 — Checkpoint emission at PLANNING (plan-approval), EXECUTING (budget-exceeded if hit), REVIEWING (escalation if retries exhausted) — body content stubbed for now → verify: checkpoint rows present at expected boundaries.
 

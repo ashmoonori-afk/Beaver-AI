@@ -1,6 +1,6 @@
 # Provider Adapters
 
-> One unified `ProviderAdapter` interface in front of every external LLM — whether it is a CLI we spawn or a direct API call.
+> One unified `ProviderAdapter` interface in front of every external LLM — CLI-spawned in v0.1, with direct API adapters deferred to v0.2+.
 
 **Doc type:** architecture
 **Status:** Draft

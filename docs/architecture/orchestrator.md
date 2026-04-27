@@ -4,7 +4,7 @@
 
 **Doc type:** architecture
 **Status:** Draft
-**Last updated:** 2026-04-26
+**Last updated:** 2026-04-27 (final-review pending state clarified)
 **See also:** [decisions/locked.md](../decisions/locked.md) (D6, D10), [models/plan-format.md](../models/plan-format.md), [models/agent-operations.md](../models/agent-operations.md), [architecture/agent-runtime.md](agent-runtime.md)
 
 ---
@@ -33,7 +33,8 @@
                                 └──────┬───────┘
                                        ▼
                                 ┌──────────────┐
-                                │  COMPLETED   │   final-review checkpoint
+                                │FINAL_REVIEW_ │   final-review checkpoint
+                                │  PENDING     │
                                 └──────────────┘
 
    Terminal: COMPLETED · FAILED · ABORTED
@@ -42,9 +43,11 @@
 
 State transitions are plain TypeScript. Each transition writes an entry to the `events` table, which is the system of record for resumability — `beaver resume <run-id>` rebuilds in-memory state by replaying events.
 
+The final human checkpoint is a non-terminal state: after the summarizer writes `final-report.md`, the run enters `FINAL_REVIEW_PENDING` and posts `final-review`. Only `approve` transitions to terminal `COMPLETED`; `discard` transitions to terminal `ABORTED`. Any diagram label that places `final-review` beside `COMPLETED` means "candidate completion awaiting final review," not a completed terminal run.
+
 ## LLM sub-decisions
 
-Within each state, the Orchestrator makes judgment calls via direct API calls against structured prompts. These are the *only* LLM-driven decision points in the outer loop:
+Within each state, the Orchestrator makes judgment calls via CLI-backed structured prompts. These are the *only* LLM-driven decision points in the outer loop:
 
 | State | Sub-decision | Output schema |
 |-------|--------------|---------------|
@@ -52,7 +55,7 @@ Within each state, the Orchestrator makes judgment calls via direct API calls ag
 | EXECUTING | Pick the next ready task; assign provider and role. | `{ taskId, providerName, roleName }` |
 | REVIEWING | Accept, retry, or escalate the just-completed task. | `{ verdict: 'accept' \| 'retry' \| 'escalate', reason }` |
 | INTEGRATING | Resolve a non-trivial merge conflict. | `{ resolution, confidence, escalate? }` |
-| COMPLETED | Has the run truly satisfied the goal? | `{ satisfied: boolean, gaps: string[] }` |
+| FINAL_REVIEW_PENDING | Has the run truly satisfied the goal before asking for user approval? | `{ satisfied: boolean, gaps: string[] }` |
 
 Every sub-decision call carries: the run goal, the current plan, the most relevant recent events, and the specific question. Responses are validated against a zod schema; on validation failure, the Orchestrator falls back to a deterministic conservative default (e.g., escalate to user).
 

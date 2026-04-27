@@ -4,7 +4,7 @@
 
 **Doc type:** model
 **Status:** Locked (D7)
-**Last updated:** 2026-04-26
+**Last updated:** 2026-04-27 (default-budget rationale clarified)
 **See also:** [decisions/locked.md](../decisions/locked.md) (D7), [architecture/agent-runtime.md](../architecture/agent-runtime.md), [architecture/feedback-channel.md](../architecture/feedback-channel.md)
 
 ---
@@ -52,6 +52,8 @@ const defaults: BudgetConfig = {
 ```
 
 Overridable in `.beaver/config.json`, per-run via CLI flags (`--budget 50`), or per-task via the plan's `budgetUsd` field.
+
+These defaults are tentative guardrails for the v0.1 reference flow, not statistically validated pricing. They should be revisited after the first 10 reference runs with real provider usage data. Implementation stores money as integer thousandths of USD (or an equivalent decimal type) and only formats as dollars at the UI/API edge.
 
 ## `budget-exceeded` checkpoint
 

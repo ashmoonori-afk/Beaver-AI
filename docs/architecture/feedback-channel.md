@@ -30,7 +30,7 @@ When a checkpoint is `pending`, the Orchestrator suspends transitions until it b
 | `risky-change-confirmation` | Reviewer, coder, or sandbox policy hook | Confirm a wide-blast-radius change (schema migration, dependency bump, file deletion, write outside worktree). See [models/sandbox-policy.md](../models/sandbox-policy.md). |
 | `merge-conflict` | Integrator | Resolve a non-trivial conflict the integrator agent could not handle confidently. |
 | `escalation` | Orchestrator after retry exhaustion | Tell the user a task could not be completed; ask how to proceed. |
-| `final-review` | Orchestrator before COMPLETED | `approve` (mark COMPLETED, leave branches in place) or `discard` (ABORTED, remove branches). Auto-merge / PR are v0.2. See [models/ux-flow.md](../models/ux-flow.md). |
+| `final-review` | Orchestrator in `FINAL_REVIEW_PENDING` before terminal `COMPLETED` | `approve` (mark COMPLETED, leave branches in place) or `discard` (ABORTED, remove branches). Auto-merge / PR are v0.2. See [models/ux-flow.md](../models/ux-flow.md). |
 | `budget-exceeded` | Budget guard at hard cap | Stop / increase / continue-once. See [models/cost-budget.md](../models/cost-budget.md). |
 
 ## Surfaces
