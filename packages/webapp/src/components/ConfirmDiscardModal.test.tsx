@@ -44,6 +44,11 @@ describe('<ConfirmDiscardModal />', () => {
     expect(onCancel).not.toHaveBeenCalled();
   });
 
+  it('disables the Discard button when busy is true', () => {
+    render(<ConfirmDiscardModal onConfirm={vi.fn()} onCancel={vi.fn()} busy />);
+    expect(screen.getByRole('button', { name: /Confirm discard/i })).toBeDisabled();
+  });
+
   it('cancels on Escape key', () => {
     const onCancel = vi.fn();
     render(<ConfirmDiscardModal onConfirm={vi.fn()} onCancel={onCancel} />);

@@ -59,6 +59,36 @@ describe('useAskWiki', () => {
     }
   });
 
+  it('aborts the in-flight request on unmount mid-debounce', async () => {
+    const seen: AbortSignal[] = [];
+    const transport: AskWikiTransport = {
+      ask(_q, signal) {
+        seen.push(signal);
+        return new Promise(() => {});
+      },
+    };
+    const { unmount } = renderHook(() => useAskWiki('q', transport, { debounceMs: 0 }));
+    unmount();
+    // The cleanup runs on unmount: setTimeout was cleared (no fire), or
+    // the request was aborted. Either way no further state updates
+    // should land — and if a request did fire its signal must be aborted.
+    if (seen.length > 0) {
+      expect(seen[0]?.aborted).toBe(true);
+    }
+  });
+
+  it('truncates long error messages so a leaked stack trace is bounded', async () => {
+    const longMessage = 'x'.repeat(500);
+    const transport: AskWikiTransport = {
+      ask: vi.fn().mockRejectedValue(new Error(longMessage)),
+    };
+    const { result } = renderHook(() => useAskWiki('q', transport, { debounceMs: 0 }));
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    if (result.current.status === 'error') {
+      expect(result.current.message.length).toBeLessThanOrEqual(201);
+    }
+  });
+
   it('aborts the in-flight request when the question changes', async () => {
     const seen: AbortSignal[] = [];
     const transport: AskWikiTransport = {

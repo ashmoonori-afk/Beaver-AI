@@ -24,6 +24,16 @@ export interface UseAskWikiOptions {
   debounceMs?: number;
 }
 
+const ERROR_MESSAGE_CAP = 200;
+
+/** Cap server-side error messages before they reach the DOM so a
+ *  leaked stack trace can't blow up the layout or smuggle long URLs. */
+function safeMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : 'ask failed';
+  if (raw.length <= ERROR_MESSAGE_CAP) return raw;
+  return `${raw.slice(0, ERROR_MESSAGE_CAP)}…`;
+}
+
 export function useAskWiki(
   question: string,
   transport: AskWikiTransport,
@@ -40,6 +50,10 @@ export function useAskWiki(
     }
     const ac = new AbortController();
     const timer = setTimeout(() => {
+      // Guard against the (rare) firing-after-cleanup race when the
+      // debounce window collapses to 0 in tests + the parent unmounts
+      // between scheduleTime and now.
+      if (ac.signal.aborted) return;
       setState({ status: 'loading' });
       transport
         .ask(trimmed, ac.signal)
@@ -49,8 +63,7 @@ export function useAskWiki(
         })
         .catch((err: unknown) => {
           if (ac.signal.aborted) return;
-          const message = err instanceof Error ? err.message : 'ask failed';
-          setState({ status: 'error', message });
+          setState({ status: 'error', message: safeMessage(err) });
         });
     }, debounceMs);
     return () => {

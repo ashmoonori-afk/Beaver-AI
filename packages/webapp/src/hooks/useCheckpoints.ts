@@ -27,10 +27,8 @@ export function useCheckpoints(
   const [checkpoints, setCheckpoints] = useState<readonly CheckpointSummary[]>([]);
 
   useEffect(() => {
-    if (!runId) {
-      setCheckpoints([]);
-      return;
-    }
+    setCheckpoints([]);
+    if (!runId) return;
     const unsub = transport.subscribe(runId, setCheckpoints);
     return unsub;
   }, [runId, transport]);

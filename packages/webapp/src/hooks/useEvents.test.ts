@@ -45,6 +45,14 @@ describe('useEvents', () => {
     expect(result.current.map((e) => e.id)).toEqual(['a', 'b', 'c']);
   });
 
+  it('calls the cleanup fn returned from subscribe on unmount', () => {
+    const unsub = vi.fn();
+    const transport: EventsTransport = { subscribe: () => unsub };
+    const { unmount } = renderHook(() => useEvents('r-1', transport));
+    unmount();
+    expect(unsub).toHaveBeenCalledTimes(1);
+  });
+
   it('resets the buffer when runId changes', () => {
     const subscribers: Array<(e: LogEvent) => void> = [];
     const transport: EventsTransport = {

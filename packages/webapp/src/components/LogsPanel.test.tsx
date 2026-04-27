@@ -53,6 +53,16 @@ describe('<LogsPanel />', () => {
     expect(screen.getByTestId('logs-json').textContent).toMatch(/hello/);
   });
 
+  it('the JSON dump only includes events that match the level filter', () => {
+    const events = [ev('a', 'info', 'first message'), ev('b', 'warn', 'second message')];
+    render(<LogsPanel events={events} />);
+    fireEvent.click(screen.getByLabelText('Show raw JSON'));
+    fireEvent.click(screen.getByRole('button', { name: 'Warn' }));
+    const json = screen.getByTestId('logs-json');
+    expect(json.textContent).toMatch(/second message/);
+    expect(json.textContent).not.toMatch(/first message/);
+  });
+
   it('marks the scroll container with aria-live="polite"', () => {
     const events = [ev('a', 'info')];
     render(<LogsPanel events={events} />);

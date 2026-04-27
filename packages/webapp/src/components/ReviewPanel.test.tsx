@@ -69,6 +69,16 @@ describe('<ReviewPanel />', () => {
     expect(md.querySelector('script')).toBeNull();
   });
 
+  it('keeps the confirm modal open when discard rejects, so the user can retry', async () => {
+    const onDecide = vi.fn().mockRejectedValue(new Error('server said no'));
+    render(<ReviewPanel report={makeReport()} onDecide={onDecide} />);
+    fireEvent.click(screen.getByRole('button', { name: /Discard run output/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Confirm discard/i }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('server said no'));
+    // Modal still mounted so the user can fix and retry.
+    expect(screen.getByTestId('confirm-discard-modal')).toBeInTheDocument();
+  });
+
   it('shows an error toast when decide() rejects and re-enables the buttons', async () => {
     const onDecide = vi.fn().mockRejectedValue(new Error('server said no'));
     render(<ReviewPanel report={makeReport()} onDecide={onDecide} />);

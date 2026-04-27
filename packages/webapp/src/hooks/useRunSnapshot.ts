@@ -19,10 +19,11 @@ export function useRunSnapshot(
   const [snapshot, setSnapshot] = useState<RunSnapshot | null>(null);
 
   useEffect(() => {
-    if (!runId) {
-      setSnapshot(null);
-      return;
-    }
+    // Reset before the new subscription so a stale snapshot is never
+    // visible across runId or transport changes (the mock-to-Tauri
+    // swap in 4D.2 also relies on this).
+    setSnapshot(null);
+    if (!runId) return;
     const unsub = transport.subscribe(runId, setSnapshot);
     return unsub;
   }, [runId, transport]);

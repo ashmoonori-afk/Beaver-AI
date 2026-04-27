@@ -3,7 +3,7 @@
 // code block. Smooth at 10 000+ events because virtualizer renders only
 // the visible window.
 
-import { useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 import { cn } from '../lib/utils.js';
@@ -93,6 +93,13 @@ function VirtualEventList({ events }: { events: readonly LogEvent[] }) {
     estimateSize: () => ROW_HEIGHT,
     overscan: 8,
   });
+
+  // Reset scroll on filter change so a deep scrollTop doesn't outrun
+  // the new (potentially much shorter) totalSize and render a blank
+  // pane — known TanStack Virtual behavior.
+  useEffect(() => {
+    if (parentRef.current) parentRef.current.scrollTop = 0;
+  }, [events]);
 
   if (events.length === 0) {
     return (

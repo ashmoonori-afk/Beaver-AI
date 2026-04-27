@@ -57,6 +57,17 @@ describe('useFinalReview', () => {
     expect(decide).toHaveBeenCalledWith('r-7', 'approve');
   });
 
+  it('calls the cleanup fn returned from subscribe on unmount', () => {
+    const unsub = vi.fn();
+    const transport: FinalReviewTransport = {
+      subscribe: () => unsub,
+      decide: vi.fn(),
+    };
+    const { unmount } = renderHook(() => useFinalReview('r-1', transport));
+    unmount();
+    expect(unsub).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects decide() when no runId is active', async () => {
     const decide = vi.fn();
     const transport: FinalReviewTransport = {

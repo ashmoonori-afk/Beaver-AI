@@ -29,10 +29,8 @@ export function useFinalReview(
   const [report, setReport] = useState<FinalReportSummary | null>(null);
 
   useEffect(() => {
-    if (!runId) {
-      setReport(null);
-      return;
-    }
+    setReport(null);
+    if (!runId) return;
     const unsub = transport.subscribe(runId, setReport);
     return unsub;
   }, [runId, transport]);

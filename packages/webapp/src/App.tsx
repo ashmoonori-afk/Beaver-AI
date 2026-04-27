@@ -2,9 +2,12 @@
 // Per-panel components: status panel renders the GoalBox empty state
 // when no run is active, and the Bento grid (W.3) once a runId is set.
 // Other panels: #checkpoints (W.4), #plan / #logs / #review (W.5),
-// #wiki (W.6 / 4U.5 — still stubbed here).
+// #wiki (W.6).
+//
+// `panels` is a Record<Panel, ReactNode> so adding a new Panel literal
+// becomes a compile-time hole, not a silent fall-through to a stub.
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 
 import { Bento } from './components/Bento.js';
 import { CheckpointPanel } from './components/CheckpointPanel.js';
@@ -58,14 +61,15 @@ function Nav({ active }: { active: Panel }) {
   );
 }
 
-function PanelStub({ name }: { name: Panel }) {
-  return (
-    <section className="flex h-[calc(100vh-4rem)] items-center justify-center">
-      <p className="text-text-500 text-caption">
-        {PANEL_LABEL[name]} panel — coming up in the next sprint.
-      </p>
-    </section>
-  );
+/** Generate a fresh run id. Prefers crypto.randomUUID (real entropy);
+ *  falls back to Date.now() + Math.random() in environments that
+ *  don't expose it (older WebViews, edge cases in jsdom). */
+function makeRunId(): string {
+  const cryptoRef: { randomUUID?: () => string } | undefined = (
+    globalThis as { crypto?: { randomUUID?: () => string } }
+  ).crypto;
+  if (cryptoRef?.randomUUID) return `r-${cryptoRef.randomUUID()}`;
+  return `r-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 interface StatusPanelProps {
@@ -184,11 +188,24 @@ export default function App({
   const handleGoal = useCallback(
     (goal: string) => {
       setActiveGoal(goal);
-      setActiveRunId(`r-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+      setActiveRunId(makeRunId());
       if (onGoal) onGoal(goal);
     },
     [onGoal],
   );
+
+  const panels: Record<Panel, ReactNode> = {
+    status: (
+      <StatusPanel activeRunId={activeRunId} transport={resolvedTransport} onSubmit={handleGoal} />
+    ),
+    checkpoints: (
+      <CheckpointsPanel activeRunId={activeRunId} transport={resolvedCheckpointTransport} />
+    ),
+    plan: <PlanRoute activeRunId={activeRunId} transport={resolvedPlanTransport} />,
+    logs: <LogsRoute activeRunId={activeRunId} transport={resolvedEventsTransport} />,
+    review: <ReviewRoute activeRunId={activeRunId} transport={resolvedFinalReviewTransport} />,
+    wiki: <WikiSearch transport={resolvedAskWikiTransport} />,
+  };
   return (
     <div className="min-h-screen bg-surface-900 font-sans">
       <header className="flex items-center justify-between border-b border-surface-700 px-6 py-3">
@@ -208,27 +225,7 @@ export default function App({
           </button>
         </div>
       </header>
-      <main className="px-6">
-        {panel === 'status' ? (
-          <StatusPanel
-            activeRunId={activeRunId}
-            transport={resolvedTransport}
-            onSubmit={handleGoal}
-          />
-        ) : panel === 'checkpoints' ? (
-          <CheckpointsPanel activeRunId={activeRunId} transport={resolvedCheckpointTransport} />
-        ) : panel === 'plan' ? (
-          <PlanRoute activeRunId={activeRunId} transport={resolvedPlanTransport} />
-        ) : panel === 'logs' ? (
-          <LogsRoute activeRunId={activeRunId} transport={resolvedEventsTransport} />
-        ) : panel === 'review' ? (
-          <ReviewRoute activeRunId={activeRunId} transport={resolvedFinalReviewTransport} />
-        ) : panel === 'wiki' ? (
-          <WikiSearch transport={resolvedAskWikiTransport} />
-        ) : (
-          <PanelStub name={panel} />
-        )}
-      </main>
+      <main className="px-6">{panels[panel]}</main>
       {helpOpen ? <HelpDialog onClose={() => setHelpOpen(false)} /> : null}
     </div>
   );

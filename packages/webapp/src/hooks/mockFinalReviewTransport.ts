@@ -59,7 +59,12 @@ export function makeMockFinalReviewTransport(): FinalReviewTransport {
       };
     },
     async decide(runId, _decision) {
-      if (!reports.has(runId)) throw new Error(`decide: no report for runId='${runId}'`);
+      const cur = reports.get(runId);
+      if (cur === undefined) throw new Error(`decide: no report for runId='${runId}'`);
+      // Guard against a second decide racing with the first — once
+      // null, the run is already approved/discarded. Real Tauri
+      // transport will reject on the server side; mock matches.
+      if (cur === null) throw new Error(`decide: already decided for runId='${runId}'`);
       reports.set(runId, null);
       emit(runId);
     },

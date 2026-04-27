@@ -17,11 +17,10 @@ export function useEvents(runId: string | null, transport: EventsTransport): rea
   const [events, setEvents] = useState<readonly LogEvent[]>([]);
 
   useEffect(() => {
-    if (!runId) {
-      setEvents([]);
-      return;
-    }
+    // Reset before the new subscription so the buffer is empty across
+    // runId and transport changes (matches useRunSnapshot semantics).
     setEvents([]);
+    if (!runId) return;
     const unsub = transport.subscribe(runId, (e) => {
       setEvents((prev) => [...prev, e]);
     });

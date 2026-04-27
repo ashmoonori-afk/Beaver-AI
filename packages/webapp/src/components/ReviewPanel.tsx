@@ -3,18 +3,14 @@
 // + rehype-sanitize). Two big actions: approve (emerald) / discard
 // (rose, modal-confirmed). No `dangerouslySetInnerHTML`, no client git.
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
 
 import { BranchPill } from './BranchPill.js';
 import { ConfirmDiscardModal } from './ConfirmDiscardModal.js';
+import { DESTRUCTIVE, PRIMARY } from '../lib/buttonClasses.js';
 import type { BranchSummary, DiffStat, FinalReportSummary } from '../types.js';
-
-const ACTION_BTN =
-  'inline-flex min-h-[44px] items-center justify-center rounded-card px-5 py-2 ' +
-  'text-body font-medium transition-colors focus-visible:outline-none ' +
-  'focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50';
 
 export interface ReviewPanelProps {
   report: FinalReportSummary | null;
@@ -25,6 +21,27 @@ export function ReviewPanel({ report, onDecide }: ReviewPanelProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+
+  // Submit closes the confirm modal only on success — on rejection the
+  // modal stays open with the error visible so the user can retry or
+  // cancel without losing context. `busy` blocks duplicate submits at
+  // the panel button AND inside the modal (passed through as a prop).
+  const submit = useCallback(
+    async (decision: 'approve' | 'discard') => {
+      if (busy) return;
+      setBusy(true);
+      setError(null);
+      try {
+        await onDecide(decision);
+        setConfirming(false);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'decide failed');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, onDecide],
+  );
 
   if (!report) {
     return (
@@ -38,19 +55,6 @@ export function ReviewPanel({ report, onDecide }: ReviewPanelProps) {
       </section>
     );
   }
-
-  const submit = async (decision: 'approve' | 'discard'): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    try {
-      await onDecide(decision);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'decide failed');
-    } finally {
-      setBusy(false);
-      setConfirming(false);
-    }
-  };
 
   return (
     <section data-testid="review-panel" className="mx-auto w-full max-w-3xl space-y-4 py-6">
@@ -70,7 +74,7 @@ export function ReviewPanel({ report, onDecide }: ReviewPanelProps) {
       <div className="flex flex-wrap justify-end gap-3">
         <button
           type="button"
-          className={`${ACTION_BTN} bg-danger-500 text-text-50 hover:bg-danger-400`}
+          className={DESTRUCTIVE}
           onClick={() => setConfirming(true)}
           disabled={busy}
           aria-label="Discard run output"
@@ -79,7 +83,7 @@ export function ReviewPanel({ report, onDecide }: ReviewPanelProps) {
         </button>
         <button
           type="button"
-          className={`${ACTION_BTN} bg-accent-500 text-surface-900 hover:bg-accent-400`}
+          className={PRIMARY}
           onClick={() => void submit('approve')}
           disabled={busy}
           aria-label="Approve and ship"
@@ -89,8 +93,11 @@ export function ReviewPanel({ report, onDecide }: ReviewPanelProps) {
       </div>
       {confirming ? (
         <ConfirmDiscardModal
+          busy={busy}
           onConfirm={() => void submit('discard')}
-          onCancel={() => setConfirming(false)}
+          onCancel={() => {
+            if (!busy) setConfirming(false);
+          }}
         />
       ) : null}
     </section>

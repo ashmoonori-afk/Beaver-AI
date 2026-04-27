@@ -1,22 +1,13 @@
 // Three reusable Actions shapes for CheckpointCard. Every kind module
-// picks one of these. Buttons are 44px-min hit area + visible focus ring
-// per the 4U.3 review gate. Disabled state during in-flight submit
-// prevents double-submit (4U.3 Bug gate).
+// picks one of these. Buttons share the project-wide class strings
+// from `lib/buttonClasses` so the 44 px hit area + focus ring invariants
+// stay in one place.
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import { cn } from '../lib/utils.js';
+import { DESTRUCTIVE, PRIMARY, SECONDARY } from '../lib/buttonClasses.js';
 import type { CheckpointActionsProps } from './types.js';
-
-const BTN_BASE =
-  'inline-flex min-h-[44px] items-center justify-center rounded-card px-4 py-2 ' +
-  'text-body font-medium transition-colors ' +
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-800 ' +
-  'disabled:cursor-not-allowed disabled:opacity-50';
-
-const PRIMARY = `${BTN_BASE} bg-accent-500 text-surface-900 hover:bg-accent-400`;
-const SECONDARY = `${BTN_BASE} bg-surface-700 text-text-50 hover:bg-surface-600`;
-const DESTRUCTIVE = `${BTN_BASE} bg-danger-500 text-text-50 hover:bg-danger-400`;
 
 interface SubmitState {
   busy: boolean;
@@ -25,21 +16,25 @@ interface SubmitState {
 
 const IDLE: SubmitState = { busy: false, error: null };
 
+/** Shared submit helper. Returns true on success, false on failure —
+ *  callers use the boolean to clear inputs / collapse panels only on
+ *  success, leaving the form intact for retry on failure. */
 async function submit(
   id: string,
   response: string,
   onAnswer: CheckpointActionsProps['onAnswer'],
   setState: (s: SubmitState) => void,
-): Promise<void> {
+): Promise<boolean> {
   setState({ busy: true, error: null });
   try {
     await onAnswer(id, response);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'submit failed';
     setState({ busy: false, error: message });
-    return;
+    return false;
   }
   setState(IDLE);
+  return true;
 }
 
 /** Approve / Comment (textarea) / Reject — used by approve-style kinds. */
@@ -49,13 +44,21 @@ export function ApproveActions({ checkpoint, onAnswer }: CheckpointActionsProps)
   const [comment, setComment] = useState('');
 
   const disabled = state.busy;
-  const onApprove = (): void => void submit(checkpoint.id, 'approve', onAnswer, setState);
-  const onReject = (): void => void submit(checkpoint.id, 'reject', onAnswer, setState);
-  const onSendComment = (): void => {
+  const onApprove = useCallback(() => {
+    void submit(checkpoint.id, 'approve', onAnswer, setState);
+  }, [checkpoint.id, onAnswer]);
+  const onReject = useCallback(() => {
+    void submit(checkpoint.id, 'reject', onAnswer, setState);
+  }, [checkpoint.id, onAnswer]);
+  const onSendComment = useCallback(async () => {
     const trimmed = comment.trim();
     if (!trimmed) return;
-    void submit(checkpoint.id, `comment:${trimmed}`, onAnswer, setState);
-  };
+    const ok = await submit(checkpoint.id, `comment:${trimmed}`, onAnswer, setState);
+    if (ok) {
+      setComment('');
+      setCommenting(false);
+    }
+  }, [checkpoint.id, comment, onAnswer]);
 
   return (
     <div data-testid={`actions-${checkpoint.id}`} className="flex flex-col gap-3">
@@ -107,7 +110,7 @@ export function ApproveActions({ checkpoint, onAnswer }: CheckpointActionsProps)
             <button
               type="button"
               className={PRIMARY}
-              onClick={onSendComment}
+              onClick={() => void onSendComment()}
               disabled={disabled || comment.trim().length === 0}
             >
               Send comment
@@ -130,7 +133,11 @@ export function FreeFormActions({ checkpoint, onAnswer }: CheckpointActionsProps
   const [text, setText] = useState('');
   const trimmed = text.trim();
   const canSend = !state.busy && trimmed.length > 0;
-  const onSend = (): void => void submit(checkpoint.id, trimmed, onAnswer, setState);
+  const onSend = useCallback(async () => {
+    if (!canSend) return;
+    const ok = await submit(checkpoint.id, trimmed, onAnswer, setState);
+    if (ok) setText('');
+  }, [canSend, checkpoint.id, trimmed, onAnswer]);
 
   return (
     <div data-testid={`actions-${checkpoint.id}`} className="flex flex-col gap-2">
@@ -155,7 +162,7 @@ export function FreeFormActions({ checkpoint, onAnswer }: CheckpointActionsProps
         <button
           type="button"
           className={cn(PRIMARY, !canSend && 'pointer-events-none')}
-          onClick={onSend}
+          onClick={() => void onSend()}
           disabled={!canSend}
           aria-label="Send response"
         >

@@ -25,4 +25,11 @@ describe('makeMockFinalReviewTransport', () => {
     const transport = makeMockFinalReviewTransport();
     await expect(transport.decide('does-not-exist', 'discard')).rejects.toThrow(/no report/i);
   });
+
+  it('rejects a second decide() for the same run (idempotency guard)', async () => {
+    const transport = makeMockFinalReviewTransport();
+    transport.subscribe('r-1', () => {});
+    await transport.decide('r-1', 'approve');
+    await expect(transport.decide('r-1', 'approve')).rejects.toThrow(/already decided/i);
+  });
 });

@@ -19,10 +19,8 @@ export function usePlanList(
   const [list, setList] = useState<readonly PlanSummary[]>([]);
 
   useEffect(() => {
-    if (!runId) {
-      setList([]);
-      return;
-    }
+    setList([]);
+    if (!runId) return;
     const unsub = transport.subscribe(runId, setList);
     return unsub;
   }, [runId, transport]);
