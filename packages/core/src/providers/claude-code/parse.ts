@@ -66,9 +66,23 @@ function liftRealClaudeEvent(raw: Record<string, unknown>): ClaudeStreamEvent | 
     if (text.length > 0) return { type: 'message_delta', text };
     return null;
   }
-  // result event: final response + cost. Treat as a message_delta + stop.
-  if (t === 'result' && typeof raw.result === 'string') {
-    return { type: 'message_delta', text: raw.result };
+  // result event: final response + cost. Surfaces error subtypes verbatim
+  // so api.ts fallback logic can match "usage limit" / "rate limit" etc.
+  if (t === 'result') {
+    const isError =
+      raw.is_error === true || (typeof raw.subtype === 'string' && raw.subtype.startsWith('error'));
+    if (isError) {
+      const reason =
+        typeof raw.result === 'string'
+          ? raw.result
+          : typeof raw.subtype === 'string'
+            ? raw.subtype
+            : 'unknown error';
+      return { type: 'message_delta', text: `[claude error] ${reason}` };
+    }
+    if (typeof raw.result === 'string') {
+      return { type: 'message_delta', text: raw.result };
+    }
   }
   // usage rollup attached to assistant.message — lift if input/output present
   if (

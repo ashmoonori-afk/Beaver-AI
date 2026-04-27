@@ -38,6 +38,7 @@ interface CodexRealMsg {
   last_agent_message?: string;
   input_tokens?: number;
   output_tokens?: number;
+  error?: { message?: string };
 }
 
 function liftRealCodexEvent(raw: Record<string, unknown>): CodexStreamEvent | null {
@@ -61,6 +62,15 @@ function liftRealCodexEvent(raw: Record<string, unknown>): CodexStreamEvent | nu
       tokensOut: msg.output_tokens,
       model: 'codex',
     };
+  }
+  // Lift Codex's failure/error events into the stream so the adapter's
+  // RunResult.summary surfaces the actual reason (e.g. 'usage limit')
+  // — fallback logic in beaver-ai/api.ts greps the summary for that.
+  if (t === 'error' && typeof msg.message === 'string') {
+    return { type: 'output_delta', text: `[codex error] ${msg.message}` };
+  }
+  if (t === 'turn.failed' && typeof msg.error?.message === 'string') {
+    return { type: 'output_delta', text: `[codex turn.failed] ${msg.error.message}` };
   }
   return null;
 }

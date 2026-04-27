@@ -106,4 +106,66 @@ describe('Beaver.run() E2E (mock-cli driven)', () => {
       closeDb(db);
     }
   }, 30_000);
+
+  it('falls back from Codex to Claude when codex stream emits a usage-limit error', async () => {
+    const db = openDb({ path: dbPath });
+    try {
+      const codexAdapter = new CodexAdapter({
+        cliPath: process.execPath,
+        defaultArgs: [MOCK_CLI, path.join(FX_DIR, 'codex-usage-limit.json')],
+        db,
+        providerForRate: 'codex',
+      });
+      const claudeAdapter = new ClaudeCodeAdapter({
+        cliPath: process.execPath,
+        defaultArgs: [MOCK_CLI, path.join(FX_DIR, 'claude-normal.json')],
+        db,
+        providerForRate: 'claude-code',
+      });
+      const beaver = new Beaver({
+        rootPath: tmpDir,
+        dbPath,
+        codexAdapter,
+        claudeAdapter,
+      });
+      // Frontend goal -> auto-routed to codex first, fails on usage-limit,
+      // automatic retry on claude-code.
+      const r = await beaver.run({ goal: 'build a web html landing page' });
+      expect(r.provider).toBe('claude-code');
+      expect(r.fallbackFrom).toMatch(/^r-/);
+      expect(r.finalState).toBe('COMPLETED');
+    } finally {
+      closeDb(db);
+    }
+  }, 30_000);
+
+  it('does not fall back when BEAVER_NO_FALLBACK=1', async () => {
+    const prev = process.env.BEAVER_NO_FALLBACK;
+    process.env.BEAVER_NO_FALLBACK = '1';
+    try {
+      const db = openDb({ path: dbPath });
+      try {
+        const codexAdapter = new CodexAdapter({
+          cliPath: process.execPath,
+          defaultArgs: [MOCK_CLI, path.join(FX_DIR, 'codex-usage-limit.json')],
+          db,
+          providerForRate: 'codex',
+        });
+        const beaver = new Beaver({
+          rootPath: tmpDir,
+          dbPath,
+          codexAdapter,
+        });
+        const r = await beaver.run({ goal: 'build a web html landing page' });
+        expect(r.provider).toBe('codex');
+        expect(r.finalState).toBe('FAILED');
+        expect(r.fallbackFrom).toBeUndefined();
+      } finally {
+        closeDb(db);
+      }
+    } finally {
+      if (prev === undefined) delete process.env.BEAVER_NO_FALLBACK;
+      else process.env.BEAVER_NO_FALLBACK = prev;
+    }
+  }, 30_000);
 });

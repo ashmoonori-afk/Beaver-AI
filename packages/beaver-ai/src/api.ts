@@ -15,9 +15,11 @@ import {
   PlanSchema,
   answerCheckpoint,
   closeDb,
+  insertEvent,
   insertProject,
   insertRate,
   insertRun,
+  listEventsByRun,
   listPendingCheckpoints,
   openDb,
   runMigrations,
@@ -58,6 +60,26 @@ export interface RunOutcome {
   runId: string;
   finalState: RunState;
   provider: 'claude-code' | 'codex';
+  /** Set when this run was a fallback retry; points to the original FAILED run id. */
+  fallbackFrom?: string;
+}
+
+/** Patterns indicating the CLI rejected the run for a reason that another
+ *  CLI (the fallback provider) would not share — usage/rate caps, auth, quota.
+ *  Errors that are likely deterministic (bad prompt, syntax) are NOT in here. */
+const FALLBACK_TRIGGER_PATTERNS = [
+  /usage limit/i,
+  /rate[- ]?limit/i,
+  /quota/i,
+  /you have hit/i,
+  /you've hit/i,
+  /429/,
+  /upgrade to pro/i,
+  /credits/i,
+];
+
+function isFallbackTrigger(text: string): boolean {
+  return FALLBACK_TRIGGER_PATTERNS.some((re) => re.test(text));
 }
 
 const FRONTEND_TERMS = [
@@ -176,16 +198,37 @@ export class Beaver {
     closeDb(db);
   }
 
-  /** Run a single goal end-to-end. Returns once the run reaches a terminal state. */
+  /** Run a single goal end-to-end. Returns once the run reaches a terminal state.
+   *  If the first provider FAILS for a reason matching a fallback trigger
+   *  (usage limit / rate limit / quota / 429), the run is retried with the
+   *  other provider exactly once. Set BEAVER_NO_FALLBACK=1 to disable. */
   async run(req: RunRequest): Promise<RunOutcome> {
     this.init();
+
+    const initialProvider = providerForGoal(req.goal);
+    const first = await this.runOnce(req, initialProvider);
+
+    if (first.finalState !== 'FAILED') return first;
+    if (process.env.BEAVER_NO_FALLBACK === '1') return first;
+    if (first.fallbackFrom !== undefined) return first; // already a fallback; do not loop
+
+    const reason = this.detectFailureReason(first.runId);
+    if (!isFallbackTrigger(reason)) return first;
+
+    // Retry with the other provider, single attempt.
+    const otherProvider: 'claude-code' | 'codex' =
+      initialProvider === 'codex' ? 'claude-code' : 'codex';
+    this.recordFallback(first.runId, otherProvider, reason);
+    const second = await this.runOnce(req, otherProvider);
+    return { ...second, fallbackFrom: first.runId };
+  }
+
+  private async runOnce(req: RunRequest, provider: 'claude-code' | 'codex'): Promise<RunOutcome> {
     const db = openDb({ path: this.dbPath });
     const runId = `r-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
     try {
       this.seedProjectAndRun(db, runId, req.goal);
 
-      const provider = providerForGoal(req.goal);
       const adapter =
         provider === 'codex'
           ? (this.opts.codexAdapter ?? new CodexAdapter({ db, providerForRate: 'codex' }))
@@ -194,8 +237,6 @@ export class Beaver {
 
       const plan = req.plan ?? stubPlanFor(req.goal);
 
-      // Auto-approve final-review for the library convenience API. CLI sets
-      // autoApproveFinalReview:false so the human answers via `beaver answer`.
       const autoAnswerCancel =
         this.opts.autoApproveFinalReview === false ? null : startAutoApprover(db, runId);
 
@@ -217,6 +258,44 @@ export class Beaver {
       } finally {
         autoAnswerCancel?.();
       }
+    } finally {
+      closeDb(db);
+    }
+  }
+
+  /** Pull recent events for the failed run and stitch their text together
+   *  so isFallbackTrigger() can match against the full failure surface
+   *  (transcript text, FSM-emitted FAIL reasons, lifted CLI error events). */
+  private detectFailureReason(runId: string): string {
+    const db = openDb({ path: this.dbPath });
+    try {
+      const events = listEventsByRun(db, runId);
+      return events
+        .map((e) => e.payload_json ?? '')
+        .filter((p) => p.length > 0)
+        .join('\n');
+    } finally {
+      closeDb(db);
+    }
+  }
+
+  /** Drop a single audit row before the fallback run starts, so anyone
+   *  reading the ledger can see the retry was deliberate. */
+  private recordFallback(originalRunId: string, nextProvider: string, reason: string): void {
+    const db = openDb({ path: this.dbPath });
+    try {
+      insertEvent(db, {
+        run_id: originalRunId,
+        ts: new Date().toISOString(),
+        source: 'beaver',
+        type: 'agent.provider.fallback',
+        payload_json: JSON.stringify({
+          nextProvider,
+          reason: reason.slice(0, 500),
+        }),
+      });
+    } catch {
+      // best effort — fallback should run regardless
     } finally {
       closeDb(db);
     }
