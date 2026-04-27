@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, it, expect } from 'vitest';
 
-import { spawnClaudeCli } from './spawn.js';
+import { spawnAdapterCli } from './spawn.js';
 import { killGracefully } from './kill.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -12,7 +12,7 @@ const FX_DIR = path.join(HERE, '..', '_test', 'fixtures');
 
 describe('killGracefully', () => {
   it('terminates a slow fixture run before it would naturally finish', async () => {
-    const { child, exit } = spawnClaudeCli({
+    const { child, exit } = spawnAdapterCli({
       cliPath: process.execPath,
       args: [MOCK_CLI, path.join(FX_DIR, 'claude-slow.json')],
     });
@@ -29,7 +29,7 @@ describe('killGracefully', () => {
   });
 
   it('is a no-op if the child has already exited', async () => {
-    const { child, exit } = spawnClaudeCli({
+    const { child, exit } = spawnAdapterCli({
       cliPath: process.execPath,
       args: [MOCK_CLI, path.join(FX_DIR, 'claude-normal.json')],
     });

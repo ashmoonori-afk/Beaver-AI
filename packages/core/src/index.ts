@@ -28,14 +28,25 @@ export * from './sandbox/classify.js';
 // budget/cost (rate_table -> USD helper)
 export * from './budget/cost.js';
 
+// providers/_shared/
+export * from './providers/_shared/spawn.js';
+export * from './providers/_shared/kill.js';
+
 // providers/claude-code/
-export * from './providers/claude-code/protocol.js';
-export * from './providers/claude-code/parse.js';
-export * from './providers/claude-code/spawn.js';
-export * from './providers/claude-code/kill.js';
+// Per-provider parse + protocol live under namespaces to disambiguate
+// `parseLine` / `toAgentEvent` (each provider exports its own).
+export * as claudeCodeProtocol from './providers/claude-code/protocol.js';
+export * as claudeCodeParse from './providers/claude-code/parse.js';
 export * from './providers/claude-code/adapter.js';
 export * from './providers/claude-code/hook-core.js';
 export * from './providers/claude-code/hook-install.js';
+
+// providers/codex/
+export * as codexProtocol from './providers/codex/protocol.js';
+export * as codexParse from './providers/codex/parse.js';
+export * from './providers/codex/adapter.js';
+export * from './providers/codex/shim-install.js';
+export * from './providers/codex/audit.js';
 
 // workspace/ (SQLite ledger)
 export * from './workspace/db.js';

@@ -1,9 +1,16 @@
-// ClaudeCodeAdapter — production adapter that satisfies the
-// ProviderAdapter contract by spawning the `claude` CLI.
+// CodexAdapter — production adapter that satisfies the ProviderAdapter
+// contract by spawning the `codex` CLI.
 //
-// Wiring: spawn.ts (process) + parse.ts (translation) + kill.ts (signals)
-// + budget/cost.ts (USD). This file is the only place that knows about all
-// four; the underlying modules stay independently testable.
+// Wiring: _shared/spawn.ts (process) + parse.ts (translation) +
+// _shared/kill.ts (signals) + budget/cost.ts (USD) + shim-install.ts
+// (PATH-shim sandbox enforcement on POSIX).
+//
+// The post-run filesystem audit (audit.ts -> agent.shell.bypass-attempt)
+// is intentionally NOT called from here — it is an orchestrator-level
+// concern that runs at run-finalization time when the orchestrator
+// already has the runId / runStartedAt context the audit needs. The
+// adapter exposes the timing it observed via `RunResult` so the
+// orchestrator can drive the audit immediately after.
 
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -25,26 +32,33 @@ import { killGracefully } from '../_shared/kill.js';
 import { spawnAdapterCli } from '../_shared/spawn.js';
 
 import { parseLine, toAgentEvent } from './parse.js';
+import { installShim } from './shim-install.js';
 
 const SUMMARY_MAX_CHARS = 500;
 const ZERO_USAGE: Usage = { tokensIn: 0, tokensOut: 0, model: '?' };
 
-export interface ClaudeCodeAdapterOptions {
-  /** Path to the `claude` executable. Tests inject `process.execPath`. */
+export interface CodexAdapterOptions {
+  /** Path to the `codex` executable. Tests inject `process.execPath`. */
   cliPath?: string;
   /** Default arg list; tests inject `[mockCliPath, fixturePath]`. */
   defaultArgs?: string[];
   /** SQLite connection for rate_table lookups. */
   db: Db;
-  /** Provider key in rate_table. Defaults to 'claude-code'. */
+  /** Provider key in rate_table. Defaults to 'codex'. */
   providerForRate?: string;
+  /** When true, install the PATH shim into <workdir>/.beaver/shim/ before
+   *  spawning Codex and prepend that dir to the spawned env's PATH. v0.1
+   *  POSIX-only — installShim throws on Windows. */
+  installShim?: boolean;
+  /** Path to classify-cli.ts (passed to installShim when installShim:true). */
+  classifyCliPath?: string;
 }
 
-export class ClaudeCodeAdapter implements ProviderAdapter {
-  readonly name = 'claude-code';
-  readonly capabilities: Capabilities = ['file-edit', 'web', 'sandbox', 'streaming'];
+export class CodexAdapter implements ProviderAdapter {
+  readonly name = 'codex';
+  readonly capabilities: Capabilities = ['file-edit', 'sandbox', 'streaming'];
 
-  constructor(private readonly opts: ClaudeCodeAdapterOptions) {}
+  constructor(private readonly opts: CodexAdapterOptions) {}
 
   cost(usage: Usage): CostEstimate {
     return computeCost(this.opts.db, usage, {
@@ -53,7 +67,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   }
 
   async run(opts: RunOptions): Promise<RunResult> {
-    const cliPath = this.opts.cliPath ?? 'claude';
+    const cliPath = this.opts.cliPath ?? 'codex';
     const args = [...(this.opts.defaultArgs ?? [])];
     const transcriptPath = path.join(opts.workdir, '.beaver-transcript.jsonl');
 
@@ -64,7 +78,33 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     let budgetExceeded = false;
 
     const stdin = (opts.systemPrompt ? opts.systemPrompt + '\n\n' : '') + opts.prompt;
-    const spawned = spawnAdapterCli({ cliPath, args, cwd: opts.workdir, stdin });
+
+    // Optional PATH-shim install: T2/T3. The shim wraps `rm`/`curl`/...
+    // and routes them through classify-cli before exec'ing the real binary.
+    let env: NodeJS.ProcessEnv | undefined;
+    if (this.opts.installShim) {
+      if (!this.opts.classifyCliPath) {
+        throw new Error('CodexAdapter: installShim:true requires classifyCliPath');
+      }
+      const { shimDir } = installShim({
+        workdir: opts.workdir,
+        classifyCliPath: this.opts.classifyCliPath,
+      });
+      const sep = process.platform === 'win32' ? ';' : ':';
+      env = {
+        PATH: `${shimDir}${sep}${process.env.PATH ?? ''}`,
+        BEAVER_WORKTREE: opts.workdir,
+        BEAVER_CWD: opts.workdir,
+      };
+    }
+
+    const spawned = spawnAdapterCli({
+      cliPath,
+      args,
+      cwd: opts.workdir,
+      stdin,
+      ...(env !== undefined && { env }),
+    });
 
     let timeoutId: NodeJS.Timeout | null = null;
     if (opts.timeoutMs !== undefined) {
@@ -102,7 +142,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
               break;
             }
           }
-        } else if (stream.type === 'message_delta') {
+        } else if (stream.type === 'output_delta') {
           textChunks.push(stream.text);
         }
       }

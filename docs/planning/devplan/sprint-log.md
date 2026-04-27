@@ -2,6 +2,99 @@
 
 > Append-only record of completed sprints. One entry per sprint.
 
+## [2026-04-27] P1.S4 — CodexAdapter + PATH shim + filesystem audit
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- followups:
+  - **Shim integration tests skip on Windows** by design (POSIX shell
+    only in v0.1, per spec). Windows Codex shimming is a v0.2
+    OS-sandbox concern.
+  - **Adapter does not auto-call the audit**. `filesystemAudit` is
+    exported and tested separately; the orchestrator (P2) wires it
+    after each Codex `run()` because that layer owns the runId +
+    runStartedAt context the audit needs.
+  - **Shim installer added a 4th env var** `BEAVER_CLASSIFY_CLI` (with
+    a `<shimDir>/.beaver-classify-cmd` sidecar fallback) so the shim
+    can locate classify-cli without a hard-coded path. Documented in
+    the shim README. Spec only mentioned 3 env vars; this 4th is
+    load-bearing — without it the shim is unimplementable.
+  - **Sub-second shim overhead spec deferred**: '100 calls < 100ms'
+    targets a shell-only shim, but ours invokes a TS classify-cli
+    (via tsx) for each call. Per-call overhead is dominated by
+    classify-cli startup (~30-50ms). Functional correctness is the
+    v0.1 bar; v0.2 may daemonize classify-cli over a unix socket.
+- notes:
+  - 1 commit on `dev/p1.s4-codex-adapter`. 2 sub-agents dispatched in
+    parallel (codex adapter + shim infrastructure); audit + adapter
+    wiring done foreground.
+  - Foundation refactor in this sprint:
+      providers/_shared/spawn.ts (was claude-code/spawn.ts; renamed
+        spawnClaudeCli -> spawnAdapterCli)
+      providers/_shared/kill.ts (was claude-code/kill.ts)
+      claude-code/adapter.ts updated to import from _shared/.
+  - Source layout (codex side, 497 lines):
+      providers/codex/protocol.ts          48  zod union of {output_delta,
+                                               tool_call, tool_output,
+                                               usage, done}.
+      providers/codex/parse.ts             56  parseLine + toAgentEvent
+                                               (translates to the same
+                                               agent.* event types Claude
+                                               uses).
+      providers/codex/adapter.ts          181  CodexAdapter (mirrors
+                                               ClaudeCodeAdapter) +
+                                               optional installShim:true
+                                               that prepends the shim
+                                               dir to spawned PATH.
+      providers/codex/shim-install.ts      90  idempotent shim install:
+                                               copies the 7 wrappers to
+                                               <workdir>/.beaver/shim/,
+                                               chmod +x, writes
+                                               .beaver-classify-cmd +
+                                               .beaver-shim-meta.json
+                                               for the install manifest.
+      providers/codex/shim/{rm,curl,wget,
+        npm,pip,sudo,git}                  30  byte-identical bash
+                                               wrappers; basename "$0"
+                                               derives the wrapped
+                                               command.
+      providers/codex/shim/README.md       57  documents the bypass
+                                               surface (T4 deliverable).
+      providers/codex/audit.ts             75  filesystemAudit walks
+                                               scanPaths and emits
+                                               agent.shell.bypass-attempt
+                                               events for files mtime'd
+                                               at/after runStartedAt
+                                               and not under worktree.
+      sandbox/classify-cli.ts              47  TS executable used by the
+                                               shim. Reads cmd from
+                                               stdin, exits 0/1/2 per
+                                               verdict.
+  - Tests (35 new, 279 total):
+      sandbox/classify-cli.test.ts (5):  spawn-based; pytest exit 0,
+                                         npm install bcrypt exit 1,
+                                         rm -rf / exit 2, empty exit 2.
+      providers/codex/parse.test.ts (13): parseLine + toAgentEvent
+                                          translation table, custom
+                                          source.
+      providers/codex/adapter.test.ts (3): happy + transcript NDJSON +
+                                           cost via rate_table.
+      providers/codex/audit.test.ts (4):  marker file outside worktree,
+                                          inside-worktree ignore,
+                                          old-mtime ignore, missing
+                                          scan path tolerated.
+      providers/codex/shim.test.ts (5):   each shim wrapping rm -rf /
+                                          blocks; allowed paths exec
+                                          real binary. Skips on Windows.
+      providers/codex/shim-install.test.ts (4): install / idempotent /
+                                                preserves keys / Windows
+                                                error.
+  - Barrel: per-provider parse + protocol exported under `claudeCodeParse`,
+    `claudeCodeProtocol`, `codexParse`, `codexProtocol` namespaces to
+    disambiguate the shared `parseLine` / `toAgentEvent` symbol names.
+    No alias renames inside the namespaces (still satisfies the S2
+    "no rename aliases" rule — namespaces preserve source names).
+  - madge --circular: 60 ts files, no cycle.
+
 ## [2026-04-27] P1.S3 — PreToolUse hook + policy wiring
 
 - exit tests: spaghetti ✓ · bug ✓ · review ✓

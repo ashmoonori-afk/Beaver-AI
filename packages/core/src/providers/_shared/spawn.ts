@@ -1,14 +1,12 @@
-// Spawn the Claude Code CLI as a child process and yield its stdout
-// as one string per line (newline-delimited).
-//
+// Shared spawn helper for adapter implementations (Claude Code, Codex, ...).
 // Pure plumbing — no parsing, no event translation, no kill semantics.
-// (P1.S2 spaghetti: spawn / parse / kill live in three separate files.)
+// Per-provider stream parsing lives in <provider>/parse.ts.
 
 import { spawn, type ChildProcess } from 'node:child_process';
 
-export interface SpawnClaudeOptions {
-  /** Path to the executable. In production this is `claude`; tests pass
-   *  `process.execPath` (node) and an args list pointing to mock-cli.js. */
+export interface SpawnAdapterOptions {
+  /** Path to the executable (e.g. `claude`, `codex`, or process.execPath
+   *  for tests pointing at mock-cli.js). */
   cliPath: string;
   /** Args passed after cliPath. */
   args?: string[];
@@ -22,7 +20,7 @@ export interface SpawnClaudeOptions {
   signal?: AbortSignal;
 }
 
-export interface SpawnedClaude {
+export interface SpawnedAdapter {
   child: ChildProcess;
   /** Async iterable of stdout lines (newline-delimited, decoded utf-8). */
   lines: AsyncIterable<string>;
@@ -31,7 +29,7 @@ export interface SpawnedClaude {
   exit: Promise<number | null>;
 }
 
-export function spawnClaudeCli(opts: SpawnClaudeOptions): SpawnedClaude {
+export function spawnAdapterCli(opts: SpawnAdapterOptions): SpawnedAdapter {
   const child = spawn(opts.cliPath, opts.args ?? [], {
     cwd: opts.cwd,
     env: opts.env ? { ...process.env, ...opts.env } : process.env,

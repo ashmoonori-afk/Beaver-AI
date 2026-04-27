@@ -66,4 +66,17 @@ describe('@beaver-ai/core barrel', () => {
     expect(c.updateEvent).toBeUndefined();
     expect(c.deleteEvent).toBeUndefined();
   });
+
+  it('exposes both adapters, hook + shim install, and the audit', () => {
+    expect(core.ClaudeCodeAdapter).toBeDefined();
+    expect(core.CodexAdapter).toBeDefined();
+    expect(typeof core.runHook).toBe('function');
+    expect(typeof core.installHook).toBe('function');
+    expect(typeof core.installShim).toBe('function');
+    expect(typeof core.filesystemAudit).toBe('function');
+    // Per-provider parse stays under namespaces because both export
+    // parseLine / toAgentEvent.
+    expect(typeof core.claudeCodeParse.parseLine).toBe('function');
+    expect(typeof core.codexParse.parseLine).toBe('function');
+  });
 });

@@ -3,15 +3,15 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, it, expect } from 'vitest';
 
-import { spawnClaudeCli } from './spawn.js';
+import { spawnAdapterCli } from './spawn.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOCK_CLI = path.join(HERE, '..', '_test', 'mock-cli.js');
 const FX_DIR = path.join(HERE, '..', '_test', 'fixtures');
 
-describe('spawnClaudeCli', () => {
+describe('spawnAdapterCli', () => {
   it('yields one line per stdout chunk for the claude-normal fixture', async () => {
-    const { lines, exit } = spawnClaudeCli({
+    const { lines, exit } = spawnAdapterCli({
       cliPath: process.execPath,
       args: [MOCK_CLI, path.join(FX_DIR, 'claude-normal.json')],
     });
@@ -25,7 +25,7 @@ describe('spawnClaudeCli', () => {
   });
 
   it('captures stderr separately from stdout', async () => {
-    const { lines, exit, stderr } = spawnClaudeCli({
+    const { lines, exit, stderr } = spawnAdapterCli({
       cliPath: process.execPath,
       // mock-cli demands stdin substring; without it -> exit 3 + stderr message
       args: [MOCK_CLI, path.join(FX_DIR, 'stdin-required.json')],

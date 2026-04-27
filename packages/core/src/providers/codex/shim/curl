@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Beaver PATH-shim. v0.1: POSIX shells only. See ./README.md.
+set -euo pipefail
+
+: "${BEAVER_WORKTREE:?BEAVER_WORKTREE required}"
+: "${BEAVER_REAL_PATH:?BEAVER_REAL_PATH required}"
+BEAVER_CWD="${BEAVER_CWD:-$(pwd)}"
+CMD_NAME="$(basename "$0")"
+
+shim_dir="$(cd "$(dirname "$0")" && pwd)"
+classify_cli="${BEAVER_CLASSIFY_CLI:-}"
+if [ -z "$classify_cli" ] && [ -f "$shim_dir/.beaver-classify-cmd" ]; then
+  classify_cli="$(cat "$shim_dir/.beaver-classify-cmd")"
+fi
+[ -n "$classify_cli" ] || { echo "shim($CMD_NAME): BEAVER_CLASSIFY_CLI unset" 1>&2; exit 2; }
+
+reconstructed="$CMD_NAME"
+for a in "$@"; do reconstructed="$reconstructed $a"; done
+
+set +e
+verdict_out="$(printf '%s' "$reconstructed" | BEAVER_CWD="$BEAVER_CWD" BEAVER_WORKTREE="$BEAVER_WORKTREE" sh -c "$classify_cli")"
+verdict_code=$?
+set -e
+
+case "$verdict_code" in
+  0) exec "$BEAVER_REAL_PATH" "$@" ;;
+  1) echo "policy: require-confirmation: $verdict_out" 1>&2; exit 2 ;;
+  2) echo "policy: hard-deny: $verdict_out" 1>&2; exit 2 ;;
+  *) echo "shim($CMD_NAME): classify err code=$verdict_code" 1>&2; exit 2 ;;
+esac
