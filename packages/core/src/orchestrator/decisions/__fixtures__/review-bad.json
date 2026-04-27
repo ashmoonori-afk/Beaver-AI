@@ -1,0 +1,16 @@
+{
+  "name": "review-bad",
+  "events": [
+    { "type": "message_delta", "text": "Hmm.\n" },
+    { "type": "message_delta", "text": "{ \"verdict\": \"maybe\" }" },
+    { "type": "usage", "tokensIn": 5, "tokensOut": 5, "model": "test-model" },
+    { "type": "stop" }
+  ],
+  "finalResult": {
+    "status": "ok",
+    "summary": "ignored",
+    "artifacts": [],
+    "usage": { "tokensIn": 0, "tokensOut": 0, "model": "test-model" },
+    "rawTranscriptPath": ".beaver-transcript.jsonl"
+  }
+}

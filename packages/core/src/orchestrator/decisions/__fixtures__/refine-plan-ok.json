@@ -1,0 +1,19 @@
+{
+  "name": "refine-plan-ok",
+  "events": [
+    { "type": "message_delta", "text": "Here is the next plan version.\n" },
+    {
+      "type": "message_delta",
+      "text": "{\"version\":2,\"goal\":\"build something\",\"tasks\":[{\"id\":\"scaffold\",\"role\":\"coder\",\"goal\":\"g\",\"prompt\":\"p\",\"dependsOn\":[],\"acceptanceCriteria\":[\"compiles\"],\"capabilitiesNeeded\":[]}],\"createdAt\":\"2026-04-27T00:00:00Z\",\"parentVersion\":1,\"modifiedBy\":\"planner\",\"modificationReason\":\"add scaffold task\"}"
+    },
+    { "type": "usage", "tokensIn": 10, "tokensOut": 20, "model": "test-model" },
+    { "type": "stop" }
+  ],
+  "finalResult": {
+    "status": "ok",
+    "summary": "ignored",
+    "artifacts": [],
+    "usage": { "tokensIn": 0, "tokensOut": 0, "model": "test-model" },
+    "rawTranscriptPath": ".beaver-transcript.jsonl"
+  }
+}

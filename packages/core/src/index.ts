@@ -20,6 +20,17 @@ export * from './budget/schema.js';
 
 // agent-runtime/
 export * from './agent-runtime/schema.js';
+export * from './agent-runtime/lifecycle.js';
+export * from './agent-runtime/worktree.js';
+
+// agent-baseline/
+export * from './agent-baseline/render.js';
+export * from './agent-baseline/write-to-worktree.js';
+
+// orchestrator/
+export * from './orchestrator/fsm.js';
+export * from './orchestrator/loop.js';
+export * as decisions from './orchestrator/decisions/index.js';
 
 // sandbox/
 export * from './sandbox/patterns.js';

@@ -1,0 +1,16 @@
+{
+  "name": "review-ok",
+  "events": [
+    { "type": "message_delta", "text": "Looks good.\n" },
+    { "type": "message_delta", "text": "{\"verdict\":\"accept\",\"reason\":\"all criteria met\"}" },
+    { "type": "usage", "tokensIn": 5, "tokensOut": 5, "model": "test-model" },
+    { "type": "stop" }
+  ],
+  "finalResult": {
+    "status": "ok",
+    "summary": "ignored",
+    "artifacts": [],
+    "usage": { "tokensIn": 0, "tokensOut": 0, "model": "test-model" },
+    "rawTranscriptPath": ".beaver-transcript.jsonl"
+  }
+}

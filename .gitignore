@@ -32,3 +32,6 @@ coverage/
 
 # Beaver runtime state (will appear once code lands)
 .beaver/
+
+# Runtime artifacts from orchestrator tests
+runs/

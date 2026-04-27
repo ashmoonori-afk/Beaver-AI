@@ -1,0 +1,16 @@
+{
+  "name": "claude-stall",
+  "delayBetweenEventsMs": 130000,
+  "events": [
+    { "type": "message_delta", "text": "starting..." },
+    { "type": "usage", "tokensIn": 1, "tokensOut": 0, "model": "test-model" },
+    { "type": "stop" }
+  ],
+  "finalResult": {
+    "status": "ok",
+    "summary": "stall fixture; runtime watchdog must kill long before this",
+    "artifacts": [],
+    "usage": { "tokensIn": 1, "tokensOut": 0, "model": "test-model" },
+    "rawTranscriptPath": ".beaver-transcript.jsonl"
+  }
+}

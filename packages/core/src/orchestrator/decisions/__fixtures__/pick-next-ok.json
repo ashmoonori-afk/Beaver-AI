@@ -1,0 +1,19 @@
+{
+  "name": "pick-next-ok",
+  "events": [
+    { "type": "message_delta", "text": "scaffold is ready.\n" },
+    {
+      "type": "message_delta",
+      "text": "{\"taskId\":\"scaffold\",\"providerName\":\"claude-code\",\"roleName\":\"coder\"}"
+    },
+    { "type": "usage", "tokensIn": 5, "tokensOut": 5, "model": "test-model" },
+    { "type": "stop" }
+  ],
+  "finalResult": {
+    "status": "ok",
+    "summary": "ignored",
+    "artifacts": [],
+    "usage": { "tokensIn": 0, "tokensOut": 0, "model": "test-model" },
+    "rawTranscriptPath": ".beaver-transcript.jsonl"
+  }
+}
