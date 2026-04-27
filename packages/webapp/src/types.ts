@@ -45,3 +45,35 @@ export const TERMINAL_RUN_STATES: ReadonlySet<RunState> = new Set([
   'FAILED',
   'ABORTED',
 ]);
+
+export const CHECKPOINT_KINDS = [
+  'goal-clarification',
+  'plan-approval',
+  'risky-change-confirmation',
+  'merge-conflict',
+  'escalation',
+  'final-review',
+  'budget-exceeded',
+] as const;
+
+export type CheckpointKind = (typeof CHECKPOINT_KINDS)[number];
+
+/** Optional wiki-sourced hint — sourced from `askWiki` per phase-5. */
+export interface CheckpointHint {
+  /** One short sentence shown above the body. */
+  text: string;
+  /** Wiki page paths that produced the hint. */
+  sourcePages: string[];
+}
+
+export interface CheckpointSummary {
+  id: string;
+  runId: string;
+  kind: CheckpointKind;
+  /** Human-readable question the agent posed. */
+  prompt: string;
+  /** ISO 8601 — when the checkpoint was opened. */
+  postedAt: string;
+  /** Optional wiki hint surfaced via `HintLine` (W.4 / 4U.5). */
+  hint?: CheckpointHint;
+}

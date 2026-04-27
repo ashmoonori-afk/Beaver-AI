@@ -52,6 +52,13 @@ describe('<App />', () => {
     expect(screen.getByText(/Plan panel/i)).toBeInTheDocument();
   });
 
+  it('renders the CheckpointPanel empty state on #checkpoints', () => {
+    window.location.hash = '#checkpoints';
+    render(<App />);
+    expect(screen.getByTestId('checkpoint-panel')).toBeInTheDocument();
+    expect(screen.getByText(/No checkpoints awaiting input/i)).toBeInTheDocument();
+  });
+
   it('swaps GoalBox for the Bento grid once a goal is submitted', () => {
     const transport = makeStubTransport({
       runId: '',
