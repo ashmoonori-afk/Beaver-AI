@@ -6,11 +6,11 @@
 
 import { z } from 'zod';
 
-import { AgentBudgetSchema, type AgentBudget } from './budget.js';
+import type { AgentBudget } from './budget.js';
 import { ArtifactRefSchema } from './artifact.js';
 import type { AgentEvent } from './event.js';
 import type { ToolSpec } from './tool.js';
-import { UsageSchema, CostEstimateSchema, type Usage, type CostEstimate } from './usage.js';
+import { UsageSchema, type Usage, type CostEstimate } from './usage.js';
 
 // Capabilities — provider-adapters.md §Capabilities.
 export const CAPABILITIES = ['file-edit', 'web', 'sandbox', 'custom-tools', 'streaming'] as const;
@@ -55,18 +55,3 @@ export interface ProviderAdapter {
   run(opts: RunOptions): Promise<RunResult>;
   cost(usage: Usage): CostEstimate;
 }
-
-// Re-export the schemas/types this interface consumes so callers can
-// import everything from one place. No alias renames (P0.S2 spaghetti rule).
-export {
-  AgentBudgetSchema,
-  ArtifactRefSchema,
-  UsageSchema,
-  CostEstimateSchema,
-  type AgentBudget,
-  type AgentEvent,
-  type ToolSpec,
-  type Usage,
-  type CostEstimate,
-};
-export type { ArtifactRef } from './artifact.js';
