@@ -12,11 +12,14 @@ import { GoalBox } from './components/GoalBox.js';
 import { LogsPanel } from './components/LogsPanel.js';
 import { PlanPanel } from './components/PlanPanel.js';
 import { ReviewPanel } from './components/ReviewPanel.js';
+import { WikiSearch } from './components/WikiSearch.js';
+import { makeMockAskWikiTransport } from './hooks/mockAskWikiTransport.js';
 import { makeMockCheckpointTransport } from './hooks/mockCheckpointTransport.js';
 import { makeMockEventsTransport } from './hooks/mockEventsTransport.js';
 import { makeMockFinalReviewTransport } from './hooks/mockFinalReviewTransport.js';
 import { makeMockPlanTransport } from './hooks/mockPlanTransport.js';
 import { makeMockTransport } from './hooks/mockTransport.js';
+import type { AskWikiTransport } from './hooks/useAskWiki.js';
 import { useCheckpoints, type CheckpointTransport } from './hooks/useCheckpoints.js';
 import { useEvents, type EventsTransport } from './hooks/useEvents.js';
 import { useFinalReview, type FinalReviewTransport } from './hooks/useFinalReview.js';
@@ -135,6 +138,7 @@ export interface AppProps {
   planTransport?: PlanListTransport;
   eventsTransport?: EventsTransport;
   finalReviewTransport?: FinalReviewTransport;
+  askWikiTransport?: AskWikiTransport;
 }
 
 export default function App({
@@ -144,6 +148,7 @@ export default function App({
   planTransport,
   eventsTransport,
   finalReviewTransport,
+  askWikiTransport,
 }: AppProps = {}) {
   const panel = useCurrentPanel();
   const [activeGoal, setActiveGoal] = useState<string | null>(null);
@@ -167,6 +172,10 @@ export default function App({
   const resolvedFinalReviewTransport = useMemo(
     () => finalReviewTransport ?? makeMockFinalReviewTransport(),
     [finalReviewTransport],
+  );
+  const resolvedAskWikiTransport = useMemo(
+    () => askWikiTransport ?? makeMockAskWikiTransport(),
+    [askWikiTransport],
   );
   const handleGoal = useCallback(
     (goal: string) => {
@@ -200,6 +209,8 @@ export default function App({
           <LogsRoute activeRunId={activeRunId} transport={resolvedEventsTransport} />
         ) : panel === 'review' ? (
           <ReviewRoute activeRunId={activeRunId} transport={resolvedFinalReviewTransport} />
+        ) : panel === 'wiki' ? (
+          <WikiSearch transport={resolvedAskWikiTransport} />
         ) : (
           <PanelStub name={panel} />
         )}

@@ -140,3 +140,22 @@ export interface FinalReportSummary {
   markdown: string;
   branches: readonly BranchSummary[];
 }
+
+/** One citation row beneath the wiki Q&A answer (W.6 / 4U.5). */
+export interface WikiCitation {
+  /** Wiki page path, e.g. `runs/2026-04-21-billing.md`. */
+  path: string;
+  /** First N lines of the page surfaced as a quote — server truncates. */
+  excerpt: string;
+  /** True when the server clipped the excerpt below its full length. */
+  truncated: boolean;
+}
+
+export interface WikiAnswer {
+  /** Plain text answer from `askWiki`. May be empty for empty-wiki case. */
+  text: string;
+  citations: readonly WikiCitation[];
+  /** True when the server returned the empty-wiki fallback. The UI shows
+   *  "no relevant entry yet" instead of the answer in that case. */
+  empty: boolean;
+}

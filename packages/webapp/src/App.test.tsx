@@ -46,10 +46,11 @@ describe('<App />', () => {
     expect(screen.getByLabelText('Goal description')).toBeInTheDocument();
   });
 
-  it('the Wiki tab still shows its stub (lands in 4U.5)', () => {
+  it('renders the Wiki search panel on #wiki', () => {
     window.location.hash = '#wiki';
     render(<App />);
-    expect(screen.getByText(/Wiki panel/i)).toBeInTheDocument();
+    expect(screen.getByTestId('wiki-panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('Ask the wiki')).toBeInTheDocument();
   });
 
   it('renders the Plan panel empty state on #plan', () => {
