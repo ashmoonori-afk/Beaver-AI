@@ -44,4 +44,26 @@ describe('@beaver-ai/core barrel', () => {
     expect(core.AGENT_OPS_DEFAULTS.maxParallelAgents).toBe(5);
     expect(core.TierSchema).toBeDefined();
   });
+
+  it('exposes workspace db wrapper, migration runner, and every DAO', () => {
+    expect(typeof core.openDb).toBe('function');
+    expect(typeof core.closeDb).toBe('function');
+    expect(typeof core.runMigrations).toBe('function');
+    // One representative function per DAO module.
+    expect(typeof core.insertProject).toBe('function');
+    expect(typeof core.insertRun).toBe('function');
+    expect(typeof core.insertPlan).toBe('function');
+    expect(typeof core.insertTask).toBe('function');
+    expect(typeof core.insertAgent).toBe('function');
+    expect(typeof core.insertEvent).toBe('function');
+    expect(typeof core.insertCheckpoint).toBe('function');
+    expect(typeof core.insertCost).toBe('function');
+    expect(typeof core.insertRate).toBe('function');
+  });
+
+  it('events DAO is append-only — no updateEvent / deleteEvent in barrel', () => {
+    const c = core as Record<string, unknown>;
+    expect(c.updateEvent).toBeUndefined();
+    expect(c.deleteEvent).toBeUndefined();
+  });
 });

@@ -20,3 +20,16 @@ export * from './budget/schema.js';
 
 // agent-runtime/
 export * from './agent-runtime/schema.js';
+
+// workspace/ (SQLite ledger)
+export * from './workspace/db.js';
+export * from './workspace/migrate.js';
+export * from './workspace/dao/projects.js';
+export * from './workspace/dao/runs.js';
+export * from './workspace/dao/plans.js';
+export * from './workspace/dao/tasks.js';
+export * from './workspace/dao/agents.js';
+export * from './workspace/dao/events.js';
+export * from './workspace/dao/checkpoints.js';
+export * from './workspace/dao/costs.js';
+export * from './workspace/dao/rate_table.js';
