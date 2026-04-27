@@ -1,10 +1,18 @@
-// DAG cycle detection over a Task[] list.
+// DAG cycle detection over a Task-like list.
 // Standard DFS coloring (white/gray/black) with a parent map to reconstruct
 // the cycle path on the first back-edge found.
-
-import type { Task } from './schema.js';
+//
+// Defined against the structural minimum (`TaskNode`) so this file does not
+// depend on plan/schema.ts — that one-way dependency lets schema.ts call
+// findPlanCycle from inside its superRefine without creating a cycle.
 
 type Color = 'white' | 'gray' | 'black';
+
+/** Structural minimum a task needs to participate in cycle detection. */
+export interface TaskNode {
+  id: string;
+  dependsOn: ReadonlyArray<string>;
+}
 
 /**
  * Returns the first dependency cycle as a list of task ids
@@ -13,7 +21,7 @@ type Color = 'white' | 'gray' | 'black';
  * Tasks that reference unknown ids are skipped — that case is a separate
  * validation concern and is handled by `PlanSchema.superRefine`.
  */
-export function findPlanCycle(tasks: ReadonlyArray<Task>): string[] | null {
+export function findPlanCycle(tasks: ReadonlyArray<TaskNode>): string[] | null {
   const adj = new Map<string, string[]>();
   for (const t of tasks) adj.set(t.id, [...t.dependsOn]);
 
