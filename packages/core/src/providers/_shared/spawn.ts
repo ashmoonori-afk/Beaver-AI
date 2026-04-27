@@ -107,7 +107,14 @@ function findOnPath(fileName: string): string | null {
 function resolveKnownNpmShim(cliPath: string, shimPath: string): SpawnTarget | null {
   const baseDir = path.dirname(shimPath);
   if (cliPath === 'claude') {
-    const exe = path.join(baseDir, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe');
+    const exe = path.join(
+      baseDir,
+      'node_modules',
+      '@anthropic-ai',
+      'claude-code',
+      'bin',
+      'claude.exe',
+    );
     if (fs.existsSync(exe)) return { command: exe, argsPrefix: [] };
   }
   if (cliPath === 'codex') {

@@ -11,6 +11,7 @@ import fs from 'node:fs';
 
 import {
   ClaudeCodeAdapter,
+  CodexAdapter,
   PlanSchema,
   answerCheckpoint,
   closeDb,
@@ -36,6 +37,8 @@ export interface BeaverOptions {
   rootPath?: string;
   /** Custom Claude adapter — tests/fixtures inject a mock-cli driven adapter. */
   claudeAdapter?: ProviderAdapter;
+  /** Custom Codex adapter for frontend/UI work. */
+  codexAdapter?: ProviderAdapter;
   /** Override the SQLite path (default: <rootPath>/.beaver/beaver.db). */
   dbPath?: string;
   /** Auto-answer the final-review checkpoint with 'approve'. Default true
@@ -54,6 +57,58 @@ export interface RunRequest {
 export interface RunOutcome {
   runId: string;
   finalState: RunState;
+  provider: 'claude-code' | 'codex';
+}
+
+const FRONTEND_TERMS = [
+  'frontend',
+  'front-end',
+  'ui',
+  'ux',
+  'web',
+  'html',
+  'css',
+  'react',
+  'vite',
+  'next',
+  'tailwind',
+  'component',
+  'page',
+  'landing',
+  '프론트',
+  '웹',
+  '화면',
+  '페이지',
+  '디자인',
+  '컴포넌트',
+  '랜딩',
+] as const;
+
+const BACKEND_TERMS = [
+  'backend',
+  'back-end',
+  'api',
+  'server',
+  'database',
+  'db',
+  'sqlite',
+  'postgres',
+  'auth',
+  'queue',
+  'worker',
+  '백엔드',
+  '서버',
+  '데이터베이스',
+  '인증',
+  '디비',
+] as const;
+
+export function providerForGoal(goal: string): 'claude-code' | 'codex' {
+  const normalized = goal.toLowerCase();
+  const frontendScore = FRONTEND_TERMS.filter((term) => normalized.includes(term)).length;
+  const backendScore = BACKEND_TERMS.filter((term) => normalized.includes(term)).length;
+  if (frontendScore > 0 && frontendScore >= backendScore) return 'codex';
+  return 'claude-code';
 }
 
 function stubPlanFor(goal: string): Plan {
@@ -102,6 +157,17 @@ export class Beaver {
     } catch {
       // Already seeded — PK violation is fine.
     }
+    try {
+      insertRate(db, {
+        provider: 'codex',
+        model: 'codex',
+        tokens_in_per_usd: 333_333,
+        tokens_out_per_usd: 66_666,
+        effective_from: '2026-01-01T00:00:00Z',
+      });
+    } catch {
+      // Already seeded.
+    }
     closeDb(db);
   }
 
@@ -114,8 +180,12 @@ export class Beaver {
     try {
       this.seedProjectAndRun(db, runId, req.goal);
 
+      const provider = providerForGoal(req.goal);
       const adapter =
-        this.opts.claudeAdapter ?? new ClaudeCodeAdapter({ db, providerForRate: 'claude-code' });
+        provider === 'codex'
+          ? (this.opts.codexAdapter ?? new CodexAdapter({ db, providerForRate: 'codex' }))
+          : (this.opts.claudeAdapter ??
+            new ClaudeCodeAdapter({ db, providerForRate: 'claude-code' }));
 
       const plan = req.plan ?? stubPlanFor(req.goal);
 
@@ -138,7 +208,7 @@ export class Beaver {
             }),
           pollTimeoutMs: 30_000,
         });
-        return { runId, finalState: result.finalState };
+        return { runId, finalState: result.finalState, provider };
       } finally {
         autoAnswerCancel?.();
       }

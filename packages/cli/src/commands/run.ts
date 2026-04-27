@@ -117,6 +117,7 @@ export async function runRun(argv: string[]): Promise<number> {
       println(color.dim('run: final review will be auto-approved for launcher mode'));
     }
     const result = await beaver.run({ goal });
+    println(color.dim(`run: provider = ${result.provider}`));
     println(color.success(`run: ${result.runId} → ${result.finalState}`));
     return result.finalState === 'COMPLETED' ? 0 : 1;
   } catch (e) {

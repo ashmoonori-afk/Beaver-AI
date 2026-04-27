@@ -9,9 +9,16 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
-import { ClaudeCodeAdapter, insertRate, openDb, closeDb, runMigrations } from '@beaver-ai/core';
+import {
+  ClaudeCodeAdapter,
+  CodexAdapter,
+  insertRate,
+  openDb,
+  closeDb,
+  runMigrations,
+} from '@beaver-ai/core';
 
-import { Beaver } from './api.js';
+import { Beaver, providerForGoal } from './api.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOCK_CLI = path.join(HERE, '..', '..', 'core', 'src', 'providers', '_test', 'mock-cli.js');
@@ -30,6 +37,13 @@ beforeEach(() => {
   insertRate(db, {
     provider: 'claude-code',
     model: 'test-model',
+    tokens_in_per_usd: 1_000_000,
+    tokens_out_per_usd: 1_000_000,
+    effective_from: '2026-01-01T00:00:00Z',
+  });
+  insertRate(db, {
+    provider: 'codex',
+    model: 'codex-test',
     tokens_in_per_usd: 1_000_000,
     tokens_out_per_usd: 1_000_000,
     effective_from: '2026-01-01T00:00:00Z',
@@ -60,7 +74,33 @@ describe('Beaver.run() E2E (mock-cli driven)', () => {
       });
       const r = await beaver.run({ goal: 'create hello.txt with body hi' });
       expect(r.runId).toMatch(/^r-/);
+      expect(r.provider).toBe('claude-code');
       // Auto-approver should drive us to COMPLETED.
+      expect(r.finalState).toBe('COMPLETED');
+    } finally {
+      closeDb(db);
+    }
+  }, 30_000);
+
+  it('routes frontend/web goals to Codex', async () => {
+    expect(providerForGoal('build a web html css landing page')).toBe('codex');
+    expect(providerForGoal('백엔드 API 서버를 만들어줘')).toBe('claude-code');
+
+    const db = openDb({ path: dbPath });
+    try {
+      const codexAdapter = new CodexAdapter({
+        cliPath: process.execPath,
+        defaultArgs: [MOCK_CLI, path.join(FX_DIR, 'codex-normal.json')],
+        db,
+        providerForRate: 'codex',
+      });
+      const beaver = new Beaver({
+        rootPath: tmpDir,
+        dbPath,
+        codexAdapter,
+      });
+      const r = await beaver.run({ goal: 'build a web html css landing page' });
+      expect(r.provider).toBe('codex');
       expect(r.finalState).toBe('COMPLETED');
     } finally {
       closeDb(db);
