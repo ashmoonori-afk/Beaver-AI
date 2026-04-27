@@ -13,5 +13,9 @@
     "lint": "pnpm -r --if-present lint",
     "format:check": "pnpm -r --if-present format:check",
     "test": "pnpm -r --if-present test"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.39",
+    "typescript": "^5.9.3"
   }
 }
