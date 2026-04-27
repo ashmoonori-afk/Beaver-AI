@@ -5,5 +5,13 @@
   "description": "Beaver AI CLI — secondary scripting/headless surface",
   "license": "MIT",
   "type": "module",
-  "main": "src/index.ts"
+  "main": "src/index.ts",
+  "bin": {
+    "beaver": "src/bin.ts"
+  },
+  "dependencies": {
+    "@beaver-ai/core": "workspace:*",
+    "beaver-ai": "workspace:*",
+    "commander": "^14.0.3"
+  }
 }

@@ -1,0 +1,19 @@
+{
+  "name": "ask-cite-decision",
+  "events": [
+    { "type": "message_delta", "text": "Reading sources.\n" },
+    {
+      "type": "message_delta",
+      "text": "{\"answer\":\"You last decided on JWT auth in decisions/run-auth-1.md (2026-04-20).\"}"
+    },
+    { "type": "usage", "tokensIn": 30, "tokensOut": 35, "model": "test-model" },
+    { "type": "stop" }
+  ],
+  "finalResult": {
+    "status": "ok",
+    "summary": "ignored",
+    "artifacts": [],
+    "usage": { "tokensIn": 0, "tokensOut": 0, "model": "test-model" },
+    "rawTranscriptPath": ".beaver-transcript.jsonl"
+  }
+}

@@ -59,6 +59,16 @@ export * from './providers/codex/adapter.js';
 export * from './providers/codex/shim-install.js';
 export * from './providers/codex/audit.js';
 
+// feedback/ (checkpoint primitive + wiki query indirection)
+export * from './feedback/checkpoint.js';
+export * from './feedback/wiki-query.js';
+
+// wiki/
+export * from './wiki/bootstrap.js';
+export * from './wiki/ingest.js';
+export * from './wiki/query.js';
+export * from './wiki/checkpoint-hook.js';
+
 // workspace/ (SQLite ledger)
 export * from './workspace/db.js';
 export * from './workspace/migrate.js';

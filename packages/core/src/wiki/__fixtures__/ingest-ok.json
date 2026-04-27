@@ -1,0 +1,19 @@
+{
+  "name": "ingest-ok",
+  "events": [
+    { "type": "message_delta", "text": "Drafting wiki edits.\n" },
+    {
+      "type": "message_delta",
+      "text": "{\"edits\":[{\"file\":\"decisions/run-fix-1.md\",\"action\":\"create\",\"content\":\"# Run run-fix-1\\n\\nGoal: build login flow\\nState: ok\\n\"},{\"file\":\"projects/demo.md\",\"action\":\"create\",\"content\":\"# demo\\n\\nLast run: run-fix-1\\n\"},{\"file\":\"index.md\",\"action\":\"update\",\"content\":\"# Wiki Index\\n\\n- decisions/run-fix-1.md\\n- projects/demo.md\\n\"},{\"file\":\"log.md\",\"action\":\"update\",\"content\":\"# Wiki Ingest Log\\n\"}]}"
+    },
+    { "type": "usage", "tokensIn": 50, "tokensOut": 80, "model": "test-model" },
+    { "type": "stop" }
+  ],
+  "finalResult": {
+    "status": "ok",
+    "summary": "ignored",
+    "artifacts": [],
+    "usage": { "tokensIn": 0, "tokensOut": 0, "model": "test-model" },
+    "rawTranscriptPath": ".beaver-transcript.jsonl"
+  }
+}
