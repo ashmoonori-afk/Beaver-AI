@@ -25,7 +25,13 @@ import { z } from 'zod';
 import type { ProviderAdapter } from '../types/provider.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const PROMPTS_DIR = path.join(HERE, 'prompts');
+// See wiki/ingest.ts — bundled mode disambiguates wiki vs decisions
+// prompts via a `wiki-prompts/` directory next to bin.mjs.
+const PROMPTS_DIR = (() => {
+  const dev = path.join(HERE, 'prompts');
+  if (fs.existsSync(dev)) return dev;
+  return path.join(HERE, 'wiki-prompts');
+})();
 const DEFAULT_BUDGET_USD = 0.05;
 const MAX_PAGES_INCLUDED = 6;
 const MAX_PAGE_CHARS = 4_000;

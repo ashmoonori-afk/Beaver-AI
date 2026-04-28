@@ -69,10 +69,10 @@ export function seedRatesFromJson(db: Db, ratesDir?: string): SeedRatesResult {
 }
 
 function defaultRatesDir(): string {
-  // Resolves to packages/core/rates/. import.meta.url points at the
-  // compiled or stripped source location; both produce the same root
-  // because rates/ sits next to src/.
   const here = path.dirname(fileURLToPath(import.meta.url));
-  // src/budget → core
+  // Production (bundled): rates/ sits next to bin.mjs.
+  const bundled = path.join(here, 'rates');
+  if (fs.existsSync(bundled)) return bundled;
+  // Dev (TS sources): packages/core/rates/, walking up from src/budget/.
   return path.resolve(here, '..', '..', 'rates');
 }

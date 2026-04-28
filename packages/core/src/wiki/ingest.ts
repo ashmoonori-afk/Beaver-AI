@@ -30,7 +30,14 @@ import type { Db } from '../workspace/db.js';
 import { applyEdits } from './applier.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const PROMPTS_DIR = path.join(HERE, 'prompts');
+// Bundled mode collapses every module's HERE to bin.mjs's directory,
+// so wiki and decisions both want `prompts/`. The build script
+// resolves the collision by copying wiki prompts to `wiki-prompts/`.
+const PROMPTS_DIR = (() => {
+  const dev = path.join(HERE, 'prompts');
+  if (fs.existsSync(dev)) return dev;
+  return path.join(HERE, 'wiki-prompts');
+})();
 const DEFAULT_BUDGET_USD = 0.1;
 const EVENTS_EXCERPT_LIMIT = 40;
 

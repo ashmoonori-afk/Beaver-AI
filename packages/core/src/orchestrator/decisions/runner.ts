@@ -17,7 +17,14 @@ import type { z } from 'zod';
 import type { ProviderAdapter } from '../../types/provider.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const PROMPTS_DIR = path.join(HERE, 'prompts');
+// Bundled mode collapses every module's HERE to bin.mjs's directory,
+// where wiki and decisions both want a `prompts/` folder. The build
+// script copies decisions prompts to `decisions-prompts/`.
+const PROMPTS_DIR = (() => {
+  const dev = path.join(HERE, 'prompts');
+  if (fs.existsSync(dev)) return dev;
+  return path.join(HERE, 'decisions-prompts');
+})();
 
 export class SubDecisionValidationError extends Error {
   constructor(

@@ -13,6 +13,8 @@ export default tseslint.config(
       '**/coverage/**',
       // Rust build outputs (Tauri copies bundled JS resources here on build).
       '**/target/**',
+      // Build-time scripts that legitimately use console.* for progress.
+      'packages/cli/scripts/**',
       'pnpm-lock.yaml',
       // Beaver-generated user artifacts (browser HTML/JS, etc).
       // These belong to the user, not the source tree.

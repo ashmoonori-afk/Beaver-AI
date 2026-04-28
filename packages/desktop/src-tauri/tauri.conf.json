@@ -44,7 +44,14 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../../cli/dist/bin.mjs": "sidecar/bin.mjs"
+      "../../cli/dist/bin.mjs": "sidecar/bin.mjs",
+      "../../cli/dist/migrations/*": "sidecar/migrations/",
+      "../../cli/dist/AGENT_BASELINE.md": "sidecar/AGENT_BASELINE.md",
+      "../../cli/dist/role/*": "sidecar/role/",
+      "../../cli/dist/rates/*": "sidecar/rates/",
+      "../../cli/dist/wiki-templates/*": "sidecar/wiki-templates/",
+      "../../cli/dist/wiki-prompts/*": "sidecar/wiki-prompts/",
+      "../../cli/dist/decisions-prompts/*": "sidecar/decisions-prompts/"
     }
   }
 }

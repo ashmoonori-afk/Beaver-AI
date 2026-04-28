@@ -18,7 +18,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const TEMPLATES_DIR = path.join(HERE, 'templates');
+// Dev (TS sources): packages/core/src/wiki/templates.
+// Prod (bundled): templates/ collides under bin.mjs, so the build
+// copies these to `wiki-templates/`. Try dev first, fall back.
+const TEMPLATES_DIR = (() => {
+  const dev = path.join(HERE, 'templates');
+  if (fs.existsSync(dev)) return dev;
+  return path.join(HERE, 'wiki-templates');
+})();
 
 const SEED_FILES = ['SCHEMA.md', 'index.md', 'log.md', 'user-profile.md'] as const;
 const SUBDIRS = ['projects', 'decisions', 'patterns'] as const;
