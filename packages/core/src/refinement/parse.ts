@@ -63,8 +63,11 @@ export function extractJsonObject(text: string): string | null {
     return balancedSubstring(trimmed);
   }
   // Fenced markdown: ```json\n{...}\n```
+  // review-pass v0.1: noUncheckedIndexedAccess makes `fence[1]` `string |
+  // undefined`. Guard explicitly rather than non-null asserting.
   const fence = trimmed.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
-  if (fence) return balancedSubstring(fence[1]!.trim());
+  const fenceBody = fence?.[1];
+  if (fenceBody !== undefined) return balancedSubstring(fenceBody.trim());
   // Embedded: find first '{' and try to balance.
   const idx = trimmed.indexOf('{');
   if (idx >= 0) return balancedSubstring(trimmed.slice(idx));

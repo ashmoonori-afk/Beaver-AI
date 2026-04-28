@@ -27,11 +27,7 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
 }));
 
-import {
-  __resetWarnedForTest,
-  makeTauriAskWikiTransport,
-  makeTauriRunSnapshotTransport,
-} from './tauriTransports.js';
+import { makeTauriAskWikiTransport, makeTauriRunSnapshotTransport } from './tauriTransports.js';
 
 afterEach(() => {
   cleanup();
@@ -39,7 +35,6 @@ afterEach(() => {
   deferredListenReject = null;
   lastChannel = null;
   lastHandler = null;
-  __resetWarnedForTest();
   vi.clearAllMocks();
 });
 
@@ -98,13 +93,16 @@ describe('makeTauriRunSnapshotTransport', () => {
 });
 
 describe('deferred transport warnings (v0.1.x not-yet-wired)', () => {
-  it('wiki transport warns exactly once per process for the deferred ask flow', async () => {
+  it('wiki transport warns once per instance for the deferred ask flow', async () => {
+    // review-pass v0.1: the warning state moved into the factory
+    // closure, so each `makeTauriAskWikiTransport()` instance manages
+    // its own first-call flag. Two instances → two warnings; the same
+    // instance asking twice → one warning.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const t1 = makeTauriAskWikiTransport();
-    const t2 = makeTauriAskWikiTransport();
+    const t = makeTauriAskWikiTransport();
     const ac = new AbortController();
-    await t1.ask('q1', ac.signal);
-    await t2.ask('q2', ac.signal);
+    await t.ask('q1', ac.signal);
+    await t.ask('q2', ac.signal);
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });

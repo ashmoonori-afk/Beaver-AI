@@ -6,6 +6,7 @@
 // drive this same surface — there is no separate code path for
 // programmatic vs human invocation.
 
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
 
@@ -238,7 +239,10 @@ export class Beaver {
 
   private async runOnce(req: RunRequest, provider: 'claude-code' | 'codex'): Promise<RunOutcome> {
     const db = openDb({ path: this.dbPath });
-    const runId = `r-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // review-pass v0.1: previously `r-${Date.now()}-${random6}` had a
+    // collision window under rapid-fire test parallelism that triggers
+    // a SQLite PK violation. UUID v4 has 122 bits of entropy.
+    const runId = `r-${randomUUID()}`;
     try {
       this.seedProjectAndRun(db, runId, req.goal);
 
@@ -272,9 +276,14 @@ export class Beaver {
           ...(plan !== undefined ? { plan } : {}),
           ...(refiner !== undefined ? { refiner } : {}),
           ...(planner !== undefined ? { planner } : {}),
-          executor: async () =>
+          // review-pass v0.1: previously this passed `req.goal` raw,
+          // ignoring both the refiner's enrichedGoal and the planner's
+          // per-task prompt. Use `task.prompt` (the agent-ready prompt
+          // the planner crafted from PRD context) so refiner+planner
+          // outputs actually drive execution.
+          executor: async (task) =>
             adapter.run({
-              prompt: req.goal,
+              prompt: task.prompt,
               workdir: this.rootPath,
               ...(this.opts.onAgentEvent !== undefined && { onEvent: this.opts.onAgentEvent }),
             }),
@@ -328,7 +337,12 @@ export class Beaver {
   }
 
   private seedProjectAndRun(db: Db, runId: string, goal: string): void {
-    const projectId = `p-${path.basename(this.rootPath)}`;
+    // review-pass v0.1: derive projectId from a hash of the absolute
+    // path so two clones of the same folder name in different parents
+    // don't collide on the project record. 12 hex chars (~48 bits) is
+    // plenty for collision avoidance among a single user's projects.
+    const pathHash = createHash('sha256').update(this.rootPath).digest('hex').slice(0, 12);
+    const projectId = `p-${pathHash}`;
     try {
       insertProject(db, {
         id: projectId,
@@ -351,6 +365,10 @@ export class Beaver {
 }
 
 function startAutoApprover(db: Db, runId: string): () => void {
+  // review-pass v0.1: previously, ANY DB error stopped the interval
+  // permanently — a single SQLITE_BUSY would cause the orchestrator
+  // to hang waiting for an auto-approval that would never come. Only
+  // shut down on errors that mean the DB itself is unreachable.
   const interval = setInterval(() => {
     try {
       const pending = listPendingCheckpoints(db, runId);
@@ -363,13 +381,38 @@ function startAutoApprover(db: Db, runId: string): () => void {
           cp.kind === 'plan-approval' ||
           cp.kind === 'goal-refinement'
         ) {
-          answerCheckpoint(db, cp.id, 'approve');
+          try {
+            answerCheckpoint(db, cp.id, 'approve');
+          } catch (innerErr) {
+            // Transient checkpoint-level error — the next tick retries.
+            if (isFatalDbError(innerErr)) {
+              clearInterval(interval);
+              return;
+            }
+          }
         }
       }
-    } catch {
-      // db closed or transient — stop trying
-      clearInterval(interval);
+    } catch (err) {
+      // List failure — only stop on fatal "DB closed" errors. SQLITE_BUSY
+      // and similar transient errors fall through and retry on next tick.
+      if (isFatalDbError(err)) {
+        clearInterval(interval);
+      }
     }
   }, 100);
   return () => clearInterval(interval);
+}
+
+/** True when the error indicates the DB handle is unrecoverable
+ *  (closed / file disappeared). Transient errors like SQLITE_BUSY,
+ *  SQLITE_LOCKED return false so the auto-approver keeps polling. */
+function isFatalDbError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message;
+  return (
+    msg.includes('database is closed') ||
+    msg.includes('SQLITE_MISUSE') ||
+    msg.includes('SQLITE_NOTADB') ||
+    msg.includes('unable to open database')
+  );
 }

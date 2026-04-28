@@ -49,16 +49,18 @@ fn workspace_set(
     args: WorkspaceSetArgs,
 ) -> Result<WorkspaceSetResult, String> {
     let path = PathBuf::from(args.path);
-    if !workspace::is_beaver_project(&path) {
+    // set_workspace canonicalizes internally — defends against `..`
+    // and symlink traversal in renderer-supplied paths.
+    let canon = workspace::set_workspace(path).map_err(|e| e.to_string())?;
+    if !workspace::is_beaver_project(&canon) {
         return Err(format!(
             "{} doesn't look like a Beaver project (missing .beaver/ subdir)",
-            path.display()
+            canon.display()
         ));
     }
-    workspace::set_workspace(path.clone()).map_err(|e| e.to_string())?;
-    persist_active_workspace(&app, &path);
+    persist_active_workspace(&app, &canon);
     Ok(WorkspaceSetResult {
-        path: path.display().to_string(),
+        path: canon.display().to_string(),
     })
 }
 
@@ -88,16 +90,18 @@ async fn workspace_pick(app: tauri::AppHandle) -> Result<WorkspacePickResult, St
     let path = file_path
         .into_path()
         .map_err(|e| format!("invalid folder path: {e}"))?;
-    if !workspace::is_beaver_project(&path) {
+    // set_workspace canonicalizes; reject if the OS-picked path
+    // somehow points outside a Beaver project.
+    let canon = workspace::set_workspace(path).map_err(|e| e.to_string())?;
+    if !workspace::is_beaver_project(&canon) {
         return Err(format!(
             "{} doesn't look like a Beaver project. Run `beaver init` there first.",
-            path.display()
+            canon.display()
         ));
     }
-    workspace::set_workspace(path.clone()).map_err(|e| e.to_string())?;
-    persist_active_workspace(&app, &path);
+    persist_active_workspace(&app, &canon);
     Ok(WorkspacePickResult {
-        path: Some(path.display().to_string()),
+        path: Some(canon.display().to_string()),
     })
 }
 
@@ -157,23 +161,29 @@ fn plans_list(args: db::PlansListArgs) -> Result<Vec<db::PlanRow>, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // review-pass v0.1: enable structured logging in BOTH debug
+            // and release builds so post-incident investigation has an
+            // audit trail. Release builds log at Warn to avoid noisy
+            // disks; debug at Info for development feedback. We
+            // deliberately do NOT log goal text or file paths here to
+            // keep PII out of the log sink.
+            let level = if cfg!(debug_assertions) {
+                log::LevelFilter::Info
+            } else {
+                log::LevelFilter::Warn
+            };
+            app.handle()
+                .plugin(tauri_plugin_log::Builder::default().level(level).build())?;
             // W.12.7 — restore the previously-selected workspace from
             // the app config dir (if any). Failure is non-fatal; the
             // picker UI handles the empty case.
             if let Ok(config_dir) = app.handle().path().app_config_dir() {
                 let restored = workspace::restore_persisted_workspace(&config_dir);
-                if let Some(path) = restored {
-                    log::info!("restored workspace: {}", path.display());
+                if restored.is_some() {
+                    log::info!("workspace restored from config");
                 }
             }
             Ok(())
@@ -190,6 +200,15 @@ pub fn run() {
             events_list,
             plans_list,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    // review-pass v0.1: drain ACTIVE_RUNS on app exit so closing the
+    // window doesn't leave orphaned sidecar processes. RunEvent::Exit
+    // fires after all windows are gone but before the process returns.
+    app.run(|_app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            sidecar::shutdown_all_runs();
+        }
+    });
 }

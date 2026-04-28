@@ -7,8 +7,6 @@
 //     the Tauri shell. The Status panel renders this in place of the
 //     GoalBox so a fresh launch's first action is "pick a folder".
 
-import { useCallback } from 'react';
-
 import { cn } from '../lib/utils.js';
 
 export interface WorkspaceBannerProps {
@@ -28,10 +26,6 @@ function shortName(path: string): string {
 }
 
 export function WorkspaceBanner({ path, loading, error, onPick, variant }: WorkspaceBannerProps) {
-  const handlePick = useCallback(() => {
-    onPick();
-  }, [onPick]);
-
   if (variant === 'chip') {
     if (loading) {
       return (
@@ -44,7 +38,7 @@ export function WorkspaceBanner({ path, loading, error, onPick, variant }: Works
       return (
         <button
           type="button"
-          onClick={handlePick}
+          onClick={onPick}
           className="inline-flex items-center gap-2 rounded-card bg-surface-800 px-2 py-1 text-caption text-text-300 transition-colors hover:bg-surface-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
           aria-label="Pick a project folder"
         >
@@ -62,13 +56,29 @@ export function WorkspaceBanner({ path, loading, error, onPick, variant }: Works
         <span className="max-w-[14rem] truncate">{shortName(path)}</span>
         <button
           type="button"
-          onClick={handlePick}
+          onClick={onPick}
           className="rounded text-text-500 underline-offset-2 transition-colors hover:text-text-50 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
           aria-label="Change project folder"
         >
           Change…
         </button>
       </span>
+    );
+  }
+
+  // review-pass v0.1: render a loading state for the card variant so
+  // the user sees "loading workspace…" rather than the full picker
+  // CTA flash during the cold-start workspace_get round-trip.
+  if (loading) {
+    return (
+      <section
+        className={cn(
+          'mx-auto flex max-w-xl items-center justify-center gap-2 rounded-card bg-surface-800 p-6 text-text-300',
+        )}
+        aria-label="Loading workspace state"
+      >
+        Loading workspace…
+      </section>
     );
   }
 
@@ -88,7 +98,7 @@ export function WorkspaceBanner({ path, loading, error, onPick, variant }: Works
       </p>
       <button
         type="button"
-        onClick={handlePick}
+        onClick={onPick}
         className="mt-2 inline-flex items-center gap-2 rounded-card bg-accent-500 px-4 py-2 text-body text-surface-900 transition-colors hover:bg-accent-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
       >
         Pick folder…

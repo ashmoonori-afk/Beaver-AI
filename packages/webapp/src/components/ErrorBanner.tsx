@@ -45,8 +45,11 @@ export function ErrorBanner({ error, onAction, onDismiss }: ErrorBannerProps) {
 
   return (
     <div
+      // review-pass v0.1: role="alert" already implies
+      // aria-live="assertive" per ARIA spec; the explicit "polite"
+      // was overriding that. CLI-missing / workspace-missing block
+      // the user, so they should be announced immediately.
       role="alert"
-      aria-live="polite"
       className={`mx-6 mt-3 flex items-start gap-3 rounded-card border px-4 py-3 ${tone}`}
     >
       <div className="flex-1">

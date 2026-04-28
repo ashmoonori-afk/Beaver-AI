@@ -146,8 +146,9 @@ const RULES: PatternRule[] = [
 ];
 
 /** Classify a raw error message into a user-facing category. Falls
- *  back to a 'generic' bucket that surfaces the trimmed raw message
- *  when no rule matches; we'd rather show *something* than swallow. */
+ *  back to a 'generic' bucket that surfaces the (sanitized) raw
+ *  message when no rule matches; we'd rather show *something* than
+ *  swallow. */
 export function classifyError(raw: unknown): ClassifiedError {
   const message =
     raw instanceof Error
@@ -161,7 +162,21 @@ export function classifyError(raw: unknown): ClassifiedError {
   return {
     kind: 'generic',
     title: 'Something went wrong',
-    body: message.length > 0 ? message : 'No additional details available.',
+    // review-pass v0.1: strip absolute filesystem paths from the
+    // generic-fallback body so the user's home directory layout
+    // doesn't end up on screen / in screenshots.
+    body: stripFilesystemPaths(message) || 'No additional details available.',
     action: { label: 'Retry', intent: 'retry' },
   };
+}
+
+/** Replace any token that looks like an absolute path (POSIX or
+ *  Windows) with a `<path>` placeholder. Conservative: only matches
+ *  paths that start with `/`, `~/`, or a drive letter. */
+function stripFilesystemPaths(message: string): string {
+  // POSIX absolute or home-relative
+  let out = message.replace(/(?<![\w/])(?:~\/|\/)[^\s'"<>]*[A-Za-z0-9_\-.]/g, '<path>');
+  // Windows drive-letter paths: C:\foo or C:/foo
+  out = out.replace(/(?<![\w])[A-Za-z]:[\\/][^\s'"<>]+/g, '<path>');
+  return out;
 }

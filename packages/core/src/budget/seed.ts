@@ -25,10 +25,7 @@ const RateFileSchema = z.object({
   rates: z.array(RateEntrySchema),
 });
 
-export type RateEntry = z.infer<typeof RateEntrySchema>;
-export type RateFile = z.infer<typeof RateFileSchema>;
-
-export interface SeedRatesResult {
+interface SeedRatesResult {
   inserted: number;
   skipped: number;
   files: number;

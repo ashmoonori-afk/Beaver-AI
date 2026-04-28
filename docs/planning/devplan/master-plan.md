@@ -52,6 +52,7 @@ Order of execution (top to bottom). Each sprint is its own branch (`dev/<id>-…
 | 22  | W.12.7  | Project folder picker + workspace persistence                | shipped     |
 | 23  | W.12.8  | Error UX (classifier + banner: CLI / network / quota / key)  | shipped     |
 | 24  | 4D.7    | Bundled CLI sidecar (esbuild → bin.mjs in resourceDir)       | shipped     |
+| 25  | review  | review-pass: fix CRITICAL/HIGH/MEDIUM findings from 5 audits | shipped     |
 
 ---
 

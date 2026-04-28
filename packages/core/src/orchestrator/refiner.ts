@@ -112,7 +112,9 @@ export function decodeRefinementPrompt(s: string): RefinementPromptPayload | nul
   }
 }
 
-const SECTION_RE = /^\[([a-z0-9]+:[a-z0-9-]+|Q\d+)\]\s*(.*)$/i;
+// review-pass v0.1: catch *all* bracket-form edits in a single comment
+// (e.g. `[prd:goals] add X [mvp:features] remove Y`), not just the first.
+const SECTION_RE_GLOBAL = /\[([a-z0-9]+:[a-z0-9-]+|Q\d+)\]\s*([^[]*)/gi;
 
 /**
  * Parse a user response into structured section edits.
@@ -127,12 +129,14 @@ const SECTION_RE = /^\[([a-z0-9]+:[a-z0-9-]+|Q\d+)\]\s*(.*)$/i;
 export function parseSectionEdits(response: string): Record<string, string> {
   if (!response.startsWith('comment:')) return {};
   const body = response.slice('comment:'.length).trim();
-  // Bracket form: [scope:section] free text
-  const match = body.match(SECTION_RE);
-  if (match) {
-    const [, section, rest] = match;
-    return { [section!]: (rest ?? '').trim() };
+  // Bracket form: [scope:section] free text — catch every match.
+  const out: Record<string, string> = {};
+  for (const m of body.matchAll(SECTION_RE_GLOBAL)) {
+    const section = m[1];
+    const rest = m[2] ?? '';
+    if (section) out[section] = rest.trim();
   }
+  if (Object.keys(out).length > 0) return out;
   // Equals form: Q<n>=<label>
   const eqMatch = body.match(/^(Q\d+)=([A-Z])$/);
   if (eqMatch) {

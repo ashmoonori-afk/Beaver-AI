@@ -1,4 +1,4 @@
-// SQLite read-only commands.
+// SQLite read commands.
 //
 // W.12.6 — the CLI sidecar (W.12.5) writes to .beaver/beaver.db; the
 // desktop app reads from the same DB to populate the renderer. We
@@ -6,6 +6,13 @@
 // `@beaver-ai/core` workspace migrations. This file is just a thin
 // query layer that maps DB rows into the JSON shapes the webapp
 // transports already understand.
+//
+// review-pass v0.1: every renderer-supplied `project_path` flows
+// through `workspace::canonicalize_workspace` (in `resolve_workspace`)
+// before becoming a SQLite path. `plans_list` additionally
+// canonicalizes the per-row `content_path` and asserts it is inside
+// `<workspace>/.beaver/` to defend against an LLM-poisoned ledger
+// pointing at /etc/passwd or ~/.ssh/id_rsa.
 
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
@@ -84,21 +91,24 @@ pub fn runs_get(args: RunsGetArgs) -> Result<Option<RunRow>, DbError> {
          COALESCE((SELECT SUM(usd) FROM costs WHERE run_id = ?1), 0) AS spent_usd \
          FROM runs WHERE id = ?1",
     )?;
-    let row = stmt
-        .query_row([&args.run_id], |r| {
-            Ok(RunRow {
-                id: r.get(0)?,
-                project_id: r.get(1)?,
-                goal: r.get(2)?,
-                status: r.get(3)?,
-                started_at: r.get(4)?,
-                ended_at: r.get(5)?,
-                budget_usd: r.get(6)?,
-                spent_usd: r.get(7)?,
-            })
+    // Distinguish "row not found" (return Ok(None)) from real SQLite
+    // errors (propagate). Previously `.ok()` swallowed both.
+    match stmt.query_row([&args.run_id], |r| {
+        Ok(RunRow {
+            id: r.get(0)?,
+            project_id: r.get(1)?,
+            goal: r.get(2)?,
+            status: r.get(3)?,
+            started_at: r.get(4)?,
+            ended_at: r.get(5)?,
+            budget_usd: r.get(6)?,
+            spent_usd: r.get(7)?,
         })
-        .ok();
-    Ok(row)
+    }) {
+        Ok(row) => Ok(Some(row)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DbError::from(e)),
+    }
 }
 
 // --- checkpoints ------------------------------------------------------
@@ -118,12 +128,22 @@ pub struct CheckpointRow {
     pub status: String,
     pub prompt: String,
     pub response: Option<String>,
+    /// Server-side timestamp from the orchestrator when the checkpoint
+    /// was posted. The renderer uses this for "X seconds ago" display
+    /// — using `Date.now()` on the client would reset to 0 every poll.
+    pub created_at: Option<String>,
 }
 
 pub fn checkpoints_list(args: CheckpointsListArgs) -> Result<Vec<CheckpointRow>, DbError> {
     let conn = open_readonly(args.project_path.as_deref())?;
+    // The schema's checkpoints table doesn't ship a created_at column
+    // in v0.1 — we surface NULL via COALESCE so the renderer can
+    // detect "no timestamp" and degrade gracefully. v0.1.x will add
+    // the column to the migration.
     let mut stmt = conn.prepare(
-        "SELECT id, run_id, kind, status, prompt, response FROM checkpoints \
+        "SELECT id, run_id, kind, status, prompt, response, \
+         COALESCE(NULL, NULL) AS created_at \
+         FROM checkpoints \
          WHERE run_id = ?1 AND status = 'pending' ORDER BY id",
     )?;
     let rows = stmt
@@ -135,6 +155,7 @@ pub fn checkpoints_list(args: CheckpointsListArgs) -> Result<Vec<CheckpointRow>,
                 status: r.get(3)?,
                 prompt: r.get(4)?,
                 response: r.get(5)?,
+                created_at: r.get(6).ok(),
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -214,34 +235,64 @@ pub struct PlansListArgs {
     pub project_path: Option<String>,
 }
 
+/// Plan row sent to the renderer.
+///
+/// review-pass v0.1: `content_path` is intentionally NOT serialized —
+/// it leaks the user's filesystem layout to the webview and isn't
+/// rendered in any UI. The renderer only needs `content` (the parsed
+/// JSON body). The path is read internally to fetch `content`.
 #[derive(Serialize)]
 pub struct PlanRow {
     pub id: String,
     pub run_id: String,
     pub version: i64,
-    pub content_path: String,
     pub content: Option<String>,
 }
 
 pub fn plans_list(args: PlansListArgs) -> Result<Vec<PlanRow>, DbError> {
+    // Resolve the workspace's .beaver/ root once so we can sandbox-check
+    // every per-row content_path against it. A malicious or corrupt
+    // ledger row pointing at /etc/passwd will be rejected here rather
+    // than read+leaked to the webview.
+    let beaver_dir = workspace::resolve_beaver_dir(args.project_path.as_deref().map(Path::new))
+        .map_err(|e| DbError(e.to_string()))?;
+    let allowed_root = std::fs::canonicalize(&beaver_dir)
+        .map_err(|e| DbError(format!("canonicalize beaver_dir: {e}")))?;
+
     let conn = open_readonly(args.project_path.as_deref())?;
     let mut stmt = conn.prepare(
         "SELECT id, run_id, version, content_path FROM plans \
          WHERE run_id = ?1 ORDER BY version DESC",
     )?;
-    let rows = stmt
+    let raw_rows: Vec<(String, String, i64, String)> = stmt
         .query_map([&args.run_id], |r| {
-            let content_path: String = r.get(3)?;
-            // Best-effort read of plan-vN.json; failures fall through to None.
-            let content = std::fs::read_to_string(&content_path).ok();
-            Ok(PlanRow {
-                id: r.get(0)?,
-                run_id: r.get(1)?,
-                version: r.get(2)?,
-                content_path,
-                content,
-            })
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(rows)
+
+    let mut out = Vec::with_capacity(raw_rows.len());
+    for (id, run_id, version, content_path) in raw_rows {
+        let content = read_plan_content_safely(&content_path, &allowed_root);
+        out.push(PlanRow {
+            id,
+            run_id,
+            version,
+            content,
+        });
+    }
+    Ok(out)
+}
+
+/// Read plan content iff the path canonicalizes to a file inside
+/// `allowed_root`. Returns None for any path that's missing,
+/// unreadable, OR escapes the project's `.beaver/` directory.
+fn read_plan_content_safely(content_path: &str, allowed_root: &Path) -> Option<String> {
+    let canon = std::fs::canonicalize(content_path).ok()?;
+    if !canon.starts_with(allowed_root) {
+        // Reject. We deliberately don't log the rejected path here —
+        // doing so would let an attacker probe for what's in our log
+        // sink. The renderer just sees content=None.
+        return None;
+    }
+    std::fs::read_to_string(&canon).ok()
 }

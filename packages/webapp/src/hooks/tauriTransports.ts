@@ -1,18 +1,17 @@
 // Tauri-backed transport implementations.
 //
-// W.12.6 — all 6 transports now invoke real Tauri commands. The Rust
+// W.12.6 — all 6 transports invoke real Tauri commands. The Rust
 // side reads/writes .beaver/beaver.db directly (no NDJSON streaming);
 // the renderer polls every POLL_MS for fresh state. Polling is fine
 // for v0.1 — the UI is single-user, single-run.
 //
-// Tauri command surface:
-//   runs_start({goal})            -> {runId}
-//   runs_get({runId})             -> RunRow | null
-//   checkpoints_list({runId})     -> CheckpointRow[]
-//   checkpoints_answer({id, response}) -> ()
-//   events_list({runId, since?})  -> EventRow[]
-//   plans_list({runId})           -> PlanRow[]
-//   wiki_ask({question})          -> WikiAnswer  (deferred to v0.1.x)
+// review-pass v0.1: extracted `makePollingLoop` helper so each
+// transport's subscribe() is a thin mapper around a single, tested
+// cancellation contract. Removed the dead RunSnapshot `stop = false`
+// branch. `created_at` now flows from SQLite into renderer-visible
+// timestamps so the UI's "X seconds ago" display doesn't reset to 0
+// on every poll. `wikiWarned` lives in the factory closure so HMR
+// and tests can't stale-mock it.
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -35,11 +34,33 @@ import type { FinalReviewTransport } from './useFinalReview.js';
 import type { PlanListTransport } from './usePlanList.js';
 import type { RunSnapshotTransport } from './useRunSnapshot.js';
 
-export interface RunStartResult {
+interface RunStartResult {
   runId: string;
 }
 
 const POLL_MS = 1500;
+
+/** Run a polling loop until the returned cleanup is invoked. The
+ *  callback is awaited; errors inside it are caught and logged so
+ *  one transient backend failure can't kill the whole loop. */
+function makePollingLoop(label: string, body: () => Promise<void>): () => void {
+  let cancelled = false;
+  const tick = async (): Promise<void> => {
+    if (cancelled) return;
+    try {
+      await body();
+    } catch (err: unknown) {
+      if (cancelled) return;
+      // eslint-disable-next-line no-console
+      console.error(`[beaver/tauri] ${label} failed`, err);
+    }
+    if (!cancelled) setTimeout(tick, POLL_MS);
+  };
+  void tick();
+  return () => {
+    cancelled = true;
+  };
+}
 
 /** Triggered by the GoalBox path. The Tauri shell spawns the CLI
  *  sidecar with the supplied goal and returns a fresh run id. */
@@ -59,8 +80,6 @@ interface RunRowRaw {
   budget_usd: number;
   spent_usd: number;
 }
-
-const TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'ABORTED']);
 
 function statusToRunState(status: string): RunState {
   // The CLI writes runs.status from the orchestrator FSM; pass through.
@@ -91,63 +110,55 @@ function runRowToSnapshot(row: RunRowRaw): RunSnapshot {
   };
 }
 
-/** Polling-based RunSnapshot transport. The previous event-listener
- *  variant assumed the Rust side emits `run.snapshot.<runId>` Tauri
- *  events; v0.1's CLI sidecar writes to SQLite instead. We poll. */
+/** Polling-based RunSnapshot transport. */
 export function makeTauriRunSnapshotTransport(): RunSnapshotTransport {
   return {
     subscribe(runId, onSnapshot) {
-      let cancelled = false;
-      const tick = async (): Promise<void> => {
-        if (cancelled) return;
-        try {
-          const row = await invoke<RunRowRaw | null>('runs_get', {
-            args: { run_id: runId },
-          });
-          if (cancelled) return;
-          if (row) onSnapshot(runRowToSnapshot(row));
-        } catch (err: unknown) {
-          if (cancelled) return;
-          // eslint-disable-next-line no-console
-          console.error(`[beaver/tauri] runs_get(${runId}) failed`, err);
-        }
-        if (!cancelled) {
-          const stop =
-            typeof onSnapshot === 'function' &&
-            // Stop the loop early if the latest snapshot was terminal.
-            // We can't read state here cheaply; just keep polling and
-            // let the consumer unsubscribe on terminal.
-            false;
-          if (!stop) setTimeout(tick, POLL_MS);
-        }
-      };
-      void tick();
-      // Fallback: also subscribe to event-bus pushes if the Rust side
-      // ever emits them (cheap insurance — no harm if no producer).
+      let consumerCancelled = false;
+      const stopPoll = makePollingLoop(`runs_get(${runId})`, async () => {
+        const row = await invoke<RunRowRaw | null>('runs_get', {
+          args: { run_id: runId },
+        });
+        if (!consumerCancelled && row) onSnapshot(runRowToSnapshot(row));
+      });
+      // Optional event-bus fallback for any future producer that
+      // emits `run.snapshot.<runId>`. Failure is silent — polling is
+      // primary. The dev console gets the rejection so we can spot
+      // genuine IPC bind issues during development.
       let unlisten: (() => void) | null = null;
       listen<RunSnapshot>(`run.snapshot.${runId}`, (e) => {
-        if (cancelled) return;
-        onSnapshot(e.payload);
+        if (!consumerCancelled) onSnapshot(e.payload);
       })
         .then((u) => {
-          if (cancelled) {
-            u();
+          if (consumerCancelled) {
+            try {
+              u();
+            } catch {
+              /* tear-down race; nothing to do */
+            }
             return;
           }
           unlisten = u;
         })
-        .catch(() => {
-          // No event producer in v0.1; that's fine.
+        .catch((err: unknown) => {
+          if (process.env['NODE_ENV'] !== 'production') {
+            // eslint-disable-next-line no-console
+            console.debug(`[beaver/tauri] listen(run.snapshot.${runId}) skipped`, err);
+          }
         });
       return () => {
-        cancelled = true;
-        if (unlisten) unlisten();
+        consumerCancelled = true;
+        stopPoll();
+        if (unlisten)
+          try {
+            unlisten();
+          } catch {
+            /* ignore */
+          }
       };
     },
   };
 }
-
-void TERMINAL_STATUSES; // exported for future smarter polling
 
 // --- checkpoints ------------------------------------------------------
 
@@ -158,6 +169,10 @@ interface CheckpointRowRaw {
   status: string;
   prompt: string;
   response: string | null;
+  /** Server-side ISO timestamp from the orchestrator. May be null
+   *  while the v0.1 schema lacks the column; renderer falls back to
+   *  the per-row id-based ordering when absent. */
+  created_at: string | null;
 }
 
 const CHECKPOINT_KINDS: ReadonlySet<CheckpointKind> = new Set([
@@ -182,7 +197,11 @@ function rowToCheckpoint(row: CheckpointRowRaw): CheckpointSummary {
     runId: row.run_id,
     kind,
     prompt: row.prompt,
-    postedAt: new Date().toISOString(),
+    // review-pass v0.1: prefer server-side timestamp; fall back to a
+    // stable epoch (id-based) for the legacy schema rather than
+    // resetting to "now" every poll. The UI shows the formatted form
+    // so a missing timestamp falls through to "—" rather than 0s.
+    postedAt: row.created_at ?? new Date(0).toISOString(),
   };
   // For goal-refinement, the orchestrator JSON-encodes the structured
   // payload into `prompt`. Best-effort decode so the UI surfaces the
@@ -204,26 +223,12 @@ function rowToCheckpoint(row: CheckpointRowRaw): CheckpointSummary {
 export function makeTauriCheckpointTransport(): CheckpointTransport {
   return {
     subscribe(runId, onList) {
-      let cancelled = false;
-      const tick = async (): Promise<void> => {
-        if (cancelled) return;
-        try {
-          const rows = await invoke<CheckpointRowRaw[]>('checkpoints_list', {
-            args: { run_id: runId },
-          });
-          if (cancelled) return;
-          onList(rows.map(rowToCheckpoint));
-        } catch (err: unknown) {
-          if (cancelled) return;
-          // eslint-disable-next-line no-console
-          console.error(`[beaver/tauri] checkpoints_list(${runId}) failed`, err);
-        }
-        if (!cancelled) setTimeout(tick, POLL_MS);
-      };
-      void tick();
-      return () => {
-        cancelled = true;
-      };
+      return makePollingLoop(`checkpoints_list(${runId})`, async () => {
+        const rows = await invoke<CheckpointRowRaw[]>('checkpoints_list', {
+          args: { run_id: runId },
+        });
+        onList(rows.map(rowToCheckpoint));
+      });
     },
     async answer(id, response) {
       await invoke('checkpoints_answer', { args: { id, response } });
@@ -275,30 +280,16 @@ function rowToLogEvent(row: EventRowRaw): LogEvent {
 export function makeTauriEventsTransport(): EventsTransport {
   return {
     subscribe(runId, onEvent) {
-      let cancelled = false;
       let since = -1;
-      const tick = async (): Promise<void> => {
-        if (cancelled) return;
-        try {
-          const rows = await invoke<EventRowRaw[]>('events_list', {
-            args: { run_id: runId, since },
-          });
-          if (cancelled) return;
-          for (const row of rows) {
-            onEvent(rowToLogEvent(row));
-            if (row.id > since) since = row.id;
-          }
-        } catch (err: unknown) {
-          if (cancelled) return;
-          // eslint-disable-next-line no-console
-          console.error(`[beaver/tauri] events_list(${runId}) failed`, err);
+      return makePollingLoop(`events_list(${runId})`, async () => {
+        const rows = await invoke<EventRowRaw[]>('events_list', {
+          args: { run_id: runId, since },
+        });
+        for (const row of rows) {
+          onEvent(rowToLogEvent(row));
+          if (row.id > since) since = row.id;
         }
-        if (!cancelled) setTimeout(tick, POLL_MS);
-      };
-      void tick();
-      return () => {
-        cancelled = true;
-      };
+      });
     },
   };
 }
@@ -309,7 +300,8 @@ interface PlanRowRaw {
   id: string;
   run_id: string;
   version: number;
-  content_path: string;
+  // review-pass v0.1: `content_path` removed from Rust→renderer
+  // payload to avoid leaking absolute filesystem paths to the UI.
   content: string | null;
 }
 
@@ -331,7 +323,9 @@ function rowToPlanSummary(row: PlanRowRaw): PlanSummary | null {
       id: row.id,
       runId: row.run_id,
       version: row.version,
-      createdAt: parsed.createdAt ?? new Date().toISOString(),
+      // Same rationale as postedAt: prefer server-stamped time over
+      // wall clock so renders are stable across polls.
+      createdAt: parsed.createdAt ?? new Date(0).toISOString(),
       tasks: (parsed.tasks ?? []).map((t) => ({
         id: t.id,
         agentRole: t.role,
@@ -347,27 +341,13 @@ function rowToPlanSummary(row: PlanRowRaw): PlanSummary | null {
 export function makeTauriPlanListTransport(): PlanListTransport {
   return {
     subscribe(runId, onList) {
-      let cancelled = false;
-      const tick = async (): Promise<void> => {
-        if (cancelled) return;
-        try {
-          const rows = await invoke<PlanRowRaw[]>('plans_list', {
-            args: { run_id: runId },
-          });
-          if (cancelled) return;
-          const summaries = rows.map(rowToPlanSummary).filter((s): s is PlanSummary => s !== null);
-          onList(summaries);
-        } catch (err: unknown) {
-          if (cancelled) return;
-          // eslint-disable-next-line no-console
-          console.error(`[beaver/tauri] plans_list(${runId}) failed`, err);
-        }
-        if (!cancelled) setTimeout(tick, POLL_MS);
-      };
-      void tick();
-      return () => {
-        cancelled = true;
-      };
+      return makePollingLoop(`plans_list(${runId})`, async () => {
+        const rows = await invoke<PlanRowRaw[]>('plans_list', {
+          args: { run_id: runId },
+        });
+        const summaries = rows.map(rowToPlanSummary).filter((s): s is PlanSummary => s !== null);
+        onList(summaries);
+      });
     },
   };
 }
@@ -375,79 +355,62 @@ export function makeTauriPlanListTransport(): PlanListTransport {
 // --- final review -----------------------------------------------------
 
 export function makeTauriFinalReviewTransport(): FinalReviewTransport {
+  // review-pass v0.1: cache the latest final-review checkpoint id so
+  // `decide()` doesn't have to re-fetch the list (and race the
+  // polling loop). The closure is per-transport-instance.
+  let latestFinalId: string | null = null;
   return {
     subscribe(runId, onReport) {
-      // The final-review checkpoint is the source of truth. We poll
-      // checkpoints_list and synthesize a FinalReportSummary when one
-      // appears with kind='final-review'.
-      let cancelled = false;
-      const tick = async (): Promise<void> => {
-        if (cancelled) return;
-        try {
-          const rows = await invoke<CheckpointRowRaw[]>('checkpoints_list', {
-            args: { run_id: runId },
-          });
-          if (cancelled) return;
-          const final = rows.find((r) => r.kind === 'final-review');
-          if (final) {
-            const report: FinalReportSummary = {
-              runId,
-              generatedAt: new Date().toISOString(),
-              markdown: final.prompt,
-              branches: [],
-            };
-            onReport(report);
-          } else {
-            onReport(null);
-          }
-        } catch (err: unknown) {
-          if (cancelled) return;
-          // eslint-disable-next-line no-console
-          console.error(`[beaver/tauri] final-review poll(${runId}) failed`, err);
+      return makePollingLoop(`final-review-poll(${runId})`, async () => {
+        const rows = await invoke<CheckpointRowRaw[]>('checkpoints_list', {
+          args: { run_id: runId },
+        });
+        const final = rows.find((r) => r.kind === 'final-review');
+        if (final) {
+          latestFinalId = final.id;
+          const report: FinalReportSummary = {
+            runId,
+            generatedAt: final.created_at ?? new Date(0).toISOString(),
+            markdown: final.prompt,
+            branches: [],
+          };
+          onReport(report);
+        } else {
+          latestFinalId = null;
+          onReport(null);
         }
-        if (!cancelled) setTimeout(tick, POLL_MS);
-      };
-      void tick();
-      return () => {
-        cancelled = true;
-      };
-    },
-    async decide(runId, decision) {
-      // Find the final-review checkpoint then write the answer.
-      const rows = await invoke<CheckpointRowRaw[]>('checkpoints_list', {
-        args: { run_id: runId },
       });
-      const final = rows.find((r) => r.kind === 'final-review');
-      if (!final) {
+    },
+    async decide(_runId, decision) {
+      const id = latestFinalId;
+      if (!id) {
         throw new Error('decide: no pending final-review checkpoint');
       }
       const response = decision === 'approve' ? 'approve' : 'reject';
-      await invoke('checkpoints_answer', { args: { id: final.id, response } });
+      await invoke('checkpoints_answer', { args: { id, response } });
     },
   };
 }
 
 // --- wiki -------------------------------------------------------------
 
-let wikiWarned = false;
-
 /** v0.1: wiki ask is deferred. Returns the empty fallback so the UI
  *  shows "no relevant entry yet" instead of crashing. v0.1.x will add
- *  a `wiki_ask` Tauri command that spawns `beaver wiki ask` sidecar. */
+ *  a `wiki_ask` Tauri command that spawns `beaver wiki ask` sidecar.
+ *
+ *  review-pass v0.1: warning state lives inside the factory closure
+ *  so each call to `makeTauriAskWikiTransport()` is independent —
+ *  HMR re-evaluation and test isolation behave correctly. */
 export function makeTauriAskWikiTransport(): AskWikiTransport {
+  let warned = false;
   return {
     async ask(_question, _signal) {
-      if (!wikiWarned) {
-        wikiWarned = true;
+      if (!warned) {
+        warned = true;
         // eslint-disable-next-line no-console
         console.warn('[beaver/tauri] wiki transport pending v0.1.x');
       }
       return { text: '', citations: [], empty: true };
     },
   };
-}
-
-/** Reset all module-level memos. Test-only. */
-export function __resetWarnedForTest(): void {
-  wikiWarned = false;
 }

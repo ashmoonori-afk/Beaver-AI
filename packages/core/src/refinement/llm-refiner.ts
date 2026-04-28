@@ -55,18 +55,6 @@ export function makeLlmRefiner(opts: MakeLlmRefinerOptions): Refiner {
         timeoutMs,
       };
       const result = await opts.adapter.run(runOpts);
-      // BEAVER_DEBUG_REFINE=1 surfaces the adapter response for
-      // diagnosing fallback-to-raw-goal cases (e.g. spawn failed,
-      // text was empty, parse rejected the JSON).
-      if (process.env['BEAVER_DEBUG_REFINE']) {
-        // eslint-disable-next-line no-console
-        console.error('[refiner debug]', {
-          status: result.status,
-          hasFinalMessage: result.finalAssistantMessage !== undefined,
-          messageLen: result.finalAssistantMessage?.length ?? 0,
-          summary: result.summary?.slice(0, 200),
-        });
-      }
 
       const message = result.finalAssistantMessage ?? result.summary;
       if (!message) {

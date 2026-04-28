@@ -75,6 +75,10 @@ export interface OrchestratorContext {
   pollIntervalMs?: number;
   /** Hard cap on poll waiting (default 60 s; tests inject smaller). */
   pollTimeoutMs?: number;
+  /** Hard cap on goal-refinement checkpoint waits. Defaults to 30 min;
+   *  refinement requires a human response so the cap must be much larger
+   *  than the orchestrator's normal poll timeout. */
+  refinementTimeoutMs?: number;
   /** Run-level USD cap for handoff validation (Phase 7.3). Defaults to $20. */
   runCapUsd?: number;
   /** Skip handoff validation (Phase 7.3). Tests with intentional cycles use this. */
@@ -99,7 +103,9 @@ export interface OrchestratorRunResult {
  * planning is deferred to v0.2 (INTEGRATING state).
  */
 export async function runOrchestrator(ctx: OrchestratorContext): Promise<OrchestratorRunResult> {
-  const runsRoot = ctx.runsRoot ?? path.join(process.cwd(), 'runs');
+  // review-pass v0.1: default runsRoot under .beaver/ so plans land
+  // alongside the SQLite ledger rather than in a sibling `runs/` dir.
+  const runsRoot = ctx.runsRoot ?? path.join(process.cwd(), '.beaver', 'runs');
   let state: RunState = 'INITIALIZED';
   let refinement: RefinementResult | null = null;
 
@@ -116,12 +122,30 @@ export async function runOrchestrator(ctx: OrchestratorContext): Promise<Orchest
   }
 
   // W.12.3 — resolve the plan. Planner wins (PRD-driven), else pre-built
-  // ctx.plan, else hard error.
-  const plan = await resolvePlan(ctx, refinement);
+  // ctx.plan, else hard programmer error (re-thrown).
+  // review-pass v0.1: previously, a planner throw at runtime left the
+  // run_status as RUNNING forever. Catch RUNTIME errors and transition
+  // to FAILED so the renderer sees a terminal state. The misconfig
+  // case (no plan AND no planner) is a programmer error and is
+  // re-thrown unchanged so callers get a stack trace at startup.
+  if (!ctx.plan && !ctx.planner) {
+    throw new Error('runOrchestrator: ctx.plan or ctx.planner must be supplied; got neither.');
+  }
+  let plan: Plan;
+  try {
+    plan = await resolvePlan(ctx, refinement);
+  } catch (err) {
+    const next = applyTransition(ctx, state, {
+      type: 'FAIL',
+      reason: err instanceof Error ? err.message : String(err),
+    });
+    updateRunStatus(ctx.db, ctx.runId, 'FAILED');
+    return { finalState: next };
+  }
   if (!ctx.refiner) {
     state = applyTransition(ctx, state, { type: 'PLAN_DRAFTED' });
   }
-  persistPlanV1(ctx, plan, runsRoot);
+  await persistPlanV1(ctx, plan, runsRoot);
 
   if (plan.tasks.length === 0) {
     state = applyTransition(ctx, state, { type: 'FINAL_REVIEW_REQUESTED' });
@@ -237,9 +261,32 @@ async function runGoalRefinement(
       }),
     });
 
-    const response = await waitForAnswer(ctx.db, checkpointId, {
-      pollMs: ctx.pollIntervalMs ?? 200,
-    });
+    // review-pass v0.1: refinement waits used to hang forever. Cap
+    // with a long-but-finite timeout so a never-answered checkpoint
+    // surfaces a clear FAILED state rather than an infinite loop.
+    const refinementTimeoutMs = ctx.refinementTimeoutMs ?? 30 * 60 * 1000;
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), refinementTimeoutMs);
+    let response: string;
+    try {
+      response = await waitForAnswer(ctx.db, checkpointId, {
+        pollMs: ctx.pollIntervalMs ?? 200,
+        signal: ac.signal,
+      });
+    } catch (err) {
+      const next = applyTransition(ctx, state, {
+        type: 'FAIL',
+        reason: ac.signal.aborted
+          ? `goal-refinement checkpoint not answered within ${refinementTimeoutMs} ms`
+          : err instanceof Error
+            ? err.message
+            : String(err),
+      });
+      updateRunStatus(ctx.db, ctx.runId, 'FAILED');
+      return { state: next, refinement };
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (APPROVE_RESPONSES.has(response)) {
       insertEvent(ctx.db, {
@@ -339,6 +386,24 @@ async function runExecuteReview(
   const task = plan.tasks[0];
   if (!task) return state;
 
+  // review-pass v0.1: v0.1 dispatches a single task. The LLM planner
+  // can emit multi-task plans; rather than silently dropping the
+  // remainder we surface it as an audit-log warning so users know
+  // why only the first task ran. Multi-task INTEGRATING is v0.2.
+  if (plan.tasks.length > 1) {
+    insertEvent(ctx.db, {
+      run_id: ctx.runId,
+      ts: now(),
+      source: SOURCE,
+      type: 'plan.multitask_truncated',
+      payload_json: JSON.stringify({
+        kept: task.id,
+        dropped: plan.tasks.slice(1).map((t) => t.id),
+        note: 'v0.1 single-task; multi-task scheduling is v0.2.',
+      }),
+    });
+  }
+
   state = applyTransition(ctx, state, { type: 'TASK_DISPATCHED' });
   const result = await dispatchTask(ctx, task);
 
@@ -421,11 +486,18 @@ function applyTransition(
   return to;
 }
 
-function persistPlanV1(ctx: OrchestratorContext, plan: Plan, runsRoot: string): void {
+async function persistPlanV1(
+  ctx: OrchestratorContext,
+  plan: Plan,
+  runsRoot: string,
+): Promise<void> {
   const planDir = path.join(runsRoot, ctx.runId, 'plan');
-  fs.mkdirSync(planDir, { recursive: true });
+  await fs.promises.mkdir(planDir, { recursive: true });
   const planPath = path.join(planDir, 'plan-v1.json');
-  fs.writeFileSync(planPath, JSON.stringify(plan, null, 2), 'utf8');
+  // review-pass v0.1: async write so the orchestrator's event loop
+  // doesn't block on slow disks. Failures here propagate up to the
+  // outer try/catch in runOrchestrator that transitions to FAILED.
+  await fs.promises.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf8');
   insertPlan(ctx.db, {
     id: `${ctx.runId}:plan:1`,
     run_id: ctx.runId,

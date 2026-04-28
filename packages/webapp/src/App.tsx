@@ -186,12 +186,16 @@ export default function App({
   const workspace = useWorkspace();
   const [bannerError, setBannerError] = useState<ClassifiedError | null>(null);
   const lastGoalRef = useRef<string | null>(null);
-  const resolvedTransport = useMemo(
-    () =>
-      transport ??
-      (desktop ? makeTauriRunSnapshotTransport() : makeMockTransport(activeGoal ?? '')),
-    [transport, desktop, activeGoal],
-  );
+  // review-pass v0.1: in desktop mode the transport doesn't depend on
+  // activeGoal — re-creating it on every keystroke caused
+  // useRunSnapshot to re-subscribe and blink the Bento. Split the
+  // memo so only the browser-mode mock transport carries activeGoal
+  // as a dep.
+  const resolvedTransport = useMemo(() => {
+    if (transport) return transport;
+    if (desktop) return makeTauriRunSnapshotTransport();
+    return makeMockTransport(activeGoal ?? '');
+  }, [transport, desktop, ...(desktop ? [] : [activeGoal])]);
   const resolvedCheckpointTransport = useMemo(
     () =>
       checkpointTransport ??
@@ -271,10 +275,14 @@ export default function App({
   );
 
   // Tauri-only: block goal submission until a workspace is picked, by
-  // rendering the picker card in the GoalBox slot. Browser mode keeps
-  // the GoalBox so demo/dev flows continue to work without a folder.
+  // rendering the picker card (or its loading variant) in the GoalBox
+  // slot. Browser mode keeps the GoalBox so demo/dev flows continue
+  // to work without a folder.
+  // review-pass v0.1: also block during the cold-start workspace_get
+  // round-trip, so a fast typist can't submit a goal before the
+  // workspace state has been confirmed.
   const workspaceCard =
-    desktop && !workspace.path && !workspace.loading ? (
+    desktop && !workspace.path ? (
       <WorkspaceBanner
         path={workspace.path}
         loading={workspace.loading}
