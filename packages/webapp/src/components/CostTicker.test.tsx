@@ -142,4 +142,16 @@ describe('<CostTicker /> tokens mode (Phase 8.3)', () => {
     expect(screen.getByTestId('cost-ticker-usd')).toBeInTheDocument();
     expect(screen.queryByTestId('cost-ticker-tokens')).toBeNull();
   });
+
+  it('shows the USD-equivalent subtitle when spentUsd > 0 (Phase 8.4)', () => {
+    render(<CostTicker spentUsd={0.42} budgetUsd={20} tokens={tokens} costMode="tokens" />);
+    const equiv = screen.getByTestId('tokens-usd-equiv');
+    expect(equiv).toBeInTheDocument();
+    expect(equiv.textContent).toMatch(/\$0\.42/);
+  });
+
+  it('omits the USD-equivalent subtitle when spentUsd is 0', () => {
+    render(<CostTicker spentUsd={0} budgetUsd={20} tokens={tokens} costMode="tokens" />);
+    expect(screen.queryByTestId('tokens-usd-equiv')).toBeNull();
+  });
 });

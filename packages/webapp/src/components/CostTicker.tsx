@@ -44,6 +44,7 @@ export function CostTicker(props: CostTickerProps) {
       <TokensView
         tokens={props.tokens}
         {...(props.tokenCap !== undefined && { cap: props.tokenCap })}
+        usdEquivalent={props.spentUsd}
       />
     );
   }
@@ -66,12 +67,17 @@ function UsdView({ spentUsd, budgetUsd }: { spentUsd: number; budgetUsd: number 
 interface TokensViewProps {
   tokens: TokenUsage;
   cap?: TokenCap;
+  /** Phase 8.4 — orchestrator-computed USD equivalent (rate-table
+   *  derived). Surfaced as a faint subtitle so subscription users
+   *  can sanity-check what their spend would have been on the API. */
+  usdEquivalent?: number;
 }
 
-function TokensView({ tokens, cap }: TokensViewProps) {
+function TokensView({ tokens, cap, usdEquivalent }: TokensViewProps) {
   const total = (cap?.total ?? DEFAULT_TOKEN_CAP_TOTAL) || 1;
   const billable = tokens.input + tokens.output;
   const pct = Math.min(100, (billable / total) * 100);
+  const showEquiv = typeof usdEquivalent === 'number' && usdEquivalent > 0;
   return (
     <div className="flex flex-col gap-1" aria-live="polite" data-testid="cost-ticker-tokens">
       <span className="text-caption text-text-500">Tokens</span>
@@ -90,6 +96,11 @@ function TokensView({ tokens, cap }: TokensViewProps) {
           <span data-testid="tokens-cached">{formatTokens(tokens.cached)}</span> cached
         </span>
         <span>of {formatTokens(total)} cap</span>
+        {showEquiv ? (
+          <span data-testid="tokens-usd-equiv" className="italic text-text-500">
+            ≈ ${(usdEquivalent as number).toFixed(2)} on API
+          </span>
+        ) : null}
       </div>
       <ProgressBar pct={pct} />
     </div>

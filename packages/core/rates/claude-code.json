@@ -1,0 +1,23 @@
+{
+  "provider": "claude-code",
+  "rates": [
+    {
+      "model": "claude-3-5-sonnet",
+      "tokens_in_per_usd": 333334,
+      "tokens_out_per_usd": 66667,
+      "effective_from": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "model": "claude-3-5-haiku",
+      "tokens_in_per_usd": 1000000,
+      "tokens_out_per_usd": 200000,
+      "effective_from": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "model": "claude-opus-4-7",
+      "tokens_in_per_usd": 66667,
+      "tokens_out_per_usd": 13334,
+      "effective_from": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}
