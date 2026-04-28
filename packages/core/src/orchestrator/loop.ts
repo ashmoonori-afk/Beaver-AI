@@ -25,13 +25,24 @@ import { insertEvent } from '../workspace/dao/events.js';
 import { insertPlan } from '../workspace/dao/plans.js';
 import { updateRunStatus } from '../workspace/dao/runs.js';
 
+import { waitForAnswer } from '../feedback/checkpoint.js';
+
 import { transition, type RunState } from './fsm.js';
 import { validateHandoff, type HandoffError } from './handoff.js';
+import {
+  MAX_REFINEMENT_ITERATIONS,
+  encodeRefinementPrompt,
+  parseSectionEdits,
+  type Refiner,
+  type RefinementResult,
+} from './refiner.js';
 
 const SOURCE = 'orchestrator';
 const FINAL_REVIEW_KIND = 'final-review';
 const ESCALATION_KIND = 'escalation';
+const GOAL_REFINEMENT_KIND = 'goal-refinement';
 const APPROVE_RESPONSES = new Set(['approve', 'approved', 'yes']);
+const REJECT_RESPONSES = new Set(['reject', 'rejected', 'no']);
 const DEFAULT_RUN_CAP_USD = 20;
 
 export interface OrchestratorContext {
@@ -58,6 +69,13 @@ export interface OrchestratorContext {
   runCapUsd?: number;
   /** Skip handoff validation (Phase 7.3). Tests with intentional cycles use this. */
   skipHandoffValidation?: boolean;
+  /** Phase W.11 — optional goal-refinement callback. When supplied, the
+   *  orchestrator runs an explicit REFINING_GOAL pass before drafting
+   *  the plan. Each iteration may post a `goal-refinement` checkpoint
+   *  with the structured PRD/MVP payload + clarifying questions; user
+   *  comments are parsed into section-targeted edits and threaded back
+   *  into the next refiner call. Cap: MAX_REFINEMENT_ITERATIONS. */
+  refiner?: Refiner;
 }
 
 export interface OrchestratorRunResult {
@@ -74,7 +92,21 @@ export async function runOrchestrator(ctx: OrchestratorContext): Promise<Orchest
   const runsRoot = ctx.runsRoot ?? path.join(process.cwd(), 'runs');
   let state: RunState = 'INITIALIZED';
 
-  state = enterPlanning(ctx, state, runsRoot);
+  // W.11 — optional refinement pass. When ctx.refiner is supplied the
+  // orchestrator goes INITIALIZED -> REFINING_GOAL -> PLANNING via the
+  // GOAL_REFINEMENT_STARTED + GOAL_REFINED events. Backward-compat:
+  // without a refiner, the existing INITIALIZED + PLAN_DRAFTED -> PLANNING
+  // path runs unchanged so every pre-W.11 test keeps working.
+  if (ctx.refiner) {
+    const refineState = await runGoalRefinement(ctx, state);
+    if (refineState === 'FAILED' || refineState === 'ABORTED') {
+      return { finalState: refineState };
+    }
+    state = refineState; // PLANNING
+    persistPlanV1(ctx, runsRoot);
+  } else {
+    state = enterPlanning(ctx, state, runsRoot);
+  }
 
   if (ctx.plan.tasks.length === 0) {
     state = applyTransition(ctx, state, { type: 'FINAL_REVIEW_REQUESTED' });
@@ -106,6 +138,110 @@ function enterPlanning(ctx: OrchestratorContext, state: RunState, runsRoot: stri
   const next = applyTransition(ctx, state, { type: 'PLAN_DRAFTED' });
   persistPlanV1(ctx, runsRoot);
   return next;
+}
+
+/**
+ * W.11 — drive REFINING_GOAL.
+ *
+ * Calls ctx.refiner up to MAX_REFINEMENT_ITERATIONS times. Each non-ready
+ * iteration posts a `goal-refinement` checkpoint whose `prompt` is the
+ * JSON-encoded RefinementPromptPayload. User responses:
+ *   - approve / yes        -> commit the latest refinement, transition to PLANNING
+ *   - reject / no          -> FAIL the run cleanly
+ *   - comment:[scope:sec]… -> parse section edits, re-run refiner with them
+ *
+ * If the refiner returns ready=true on any iteration, transitions
+ * immediately without posting a checkpoint. Iteration cap reached
+ * without convergence falls through to PLANNING with the latest result
+ * (anti-deadlock guard).
+ *
+ * Returns the FSM state after this phase: PLANNING on success, FAILED or
+ * ABORTED on terminal exit.
+ */
+async function runGoalRefinement(
+  ctx: OrchestratorContext,
+  startState: RunState,
+): Promise<RunState> {
+  if (!ctx.refiner) return startState;
+  const state = applyTransition(ctx, startState, { type: 'GOAL_REFINEMENT_STARTED' });
+  let priorResponse: string | undefined;
+  let sectionEdits: Record<string, string> = {};
+  let lastRefinement: RefinementResult | null = null;
+
+  for (let i = 0; i < MAX_REFINEMENT_ITERATIONS; i += 1) {
+    const refinement = await ctx.refiner({
+      rawGoal: ctx.goal,
+      ...(priorResponse !== undefined ? { priorResponse } : {}),
+      ...(Object.keys(sectionEdits).length > 0 ? { sectionEdits } : {}),
+    });
+    lastRefinement = refinement;
+
+    if (refinement.ready) {
+      insertEvent(ctx.db, {
+        run_id: ctx.runId,
+        ts: now(),
+        source: SOURCE,
+        type: 'goal.refined',
+        payload_json: JSON.stringify({ iteration: i, ready: true }),
+      });
+      return applyTransition(ctx, state, { type: 'GOAL_REFINED' });
+    }
+
+    const checkpointId = `${ctx.runId}:goal-refinement:${i}`;
+    insertCheckpoint(ctx.db, {
+      id: checkpointId,
+      run_id: ctx.runId,
+      kind: GOAL_REFINEMENT_KIND,
+      status: 'pending',
+      prompt: encodeRefinementPrompt({
+        rawGoal: ctx.goal,
+        iteration: i,
+        refinement,
+      }),
+    });
+
+    const response = await waitForAnswer(ctx.db, checkpointId, {
+      pollMs: ctx.pollIntervalMs ?? 200,
+    });
+
+    if (APPROVE_RESPONSES.has(response)) {
+      insertEvent(ctx.db, {
+        run_id: ctx.runId,
+        ts: now(),
+        source: SOURCE,
+        type: 'goal.refined',
+        payload_json: JSON.stringify({ iteration: i, ready: false, decision: 'approve' }),
+      });
+      return applyTransition(ctx, state, { type: 'GOAL_REFINED' });
+    }
+    if (REJECT_RESPONSES.has(response)) {
+      const next = applyTransition(ctx, state, {
+        type: 'FAIL',
+        reason: 'user rejected goal refinement',
+      });
+      updateRunStatus(ctx.db, ctx.runId, 'FAILED');
+      return next;
+    }
+    // comment:… — accumulate section edits and loop.
+    priorResponse = response;
+    sectionEdits = { ...sectionEdits, ...parseSectionEdits(response) };
+  }
+
+  // Iteration cap reached. Advance with the latest refinement so the
+  // run never deadlocks. Audit log records the cap-out.
+  insertEvent(ctx.db, {
+    run_id: ctx.runId,
+    ts: now(),
+    source: SOURCE,
+    type: 'goal.refined',
+    payload_json: JSON.stringify({
+      iteration: MAX_REFINEMENT_ITERATIONS,
+      ready: false,
+      decision: 'iteration-cap',
+      hadRefinement: lastRefinement !== null,
+    }),
+  });
+  return applyTransition(ctx, state, { type: 'GOAL_REFINED' });
 }
 
 /**

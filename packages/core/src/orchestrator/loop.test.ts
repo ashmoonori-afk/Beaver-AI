@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Plan, Task } from '../plan/schema.js';
 import type { RunResult } from '../types/provider.js';
@@ -304,6 +304,204 @@ describe('runOrchestrator — handoff validation (Phase 7.3)', () => {
     const [result] = await Promise.all([runOrchestrator(ctx), approval]);
     expect(result.finalState).toBe('COMPLETED');
     expect(getCheckpoint(db, 'r1:handoff-escalation')).toBeNull();
+  });
+});
+
+describe('runOrchestrator — refinement loop (W.11)', () => {
+  function readyRefinement(rawGoal: string) {
+    return {
+      enrichedGoal: `enriched: ${rawGoal}`,
+      assumptions: [],
+      questions: [],
+      ready: true,
+    };
+  }
+
+  function unreadyRefinement(rawGoal: string, iteration: number) {
+    return {
+      enrichedGoal: `iter-${iteration}: ${rawGoal}`,
+      assumptions: ['single-user'],
+      questions: [],
+      clarifyingQuestions: [
+        {
+          id: 'Q1',
+          text: 'Auth?',
+          options: [
+            { label: 'A', value: 'email' },
+            { label: 'B', value: 'none' },
+          ],
+        },
+      ],
+      ready: false,
+    };
+  }
+
+  it('skips refinement when ctx.refiner is omitted (backward compat)', async () => {
+    const ctx = {
+      db,
+      runId: 'r1',
+      goal: 'g',
+      plan: plan([task('t1')]),
+      runsRoot: workdir,
+      pollIntervalMs: 25,
+      pollTimeoutMs: 5_000,
+      executor: async (): Promise<RunResult> => okResult(),
+    };
+    const approval = approveSoon('r1:final-review');
+    const [result] = await Promise.all([runOrchestrator(ctx), approval]);
+    expect(result.finalState).toBe('COMPLETED');
+    // No goal-refinement checkpoint was posted.
+    expect(getCheckpoint(db, 'r1:goal-refinement:0')).toBeNull();
+  });
+
+  it('auto-advances to PLANNING when refiner returns ready=true (no checkpoint)', async () => {
+    const refiner = vi.fn(async ({ rawGoal }: { rawGoal: string }) => readyRefinement(rawGoal));
+    const ctx = {
+      db,
+      runId: 'r1',
+      goal: 'build a todo app',
+      plan: plan([task('t1')]),
+      runsRoot: workdir,
+      pollIntervalMs: 25,
+      pollTimeoutMs: 5_000,
+      executor: async (): Promise<RunResult> => okResult(),
+      refiner,
+    };
+    const approval = approveSoon('r1:final-review');
+    const [result] = await Promise.all([runOrchestrator(ctx), approval]);
+    expect(result.finalState).toBe('COMPLETED');
+    expect(refiner).toHaveBeenCalledTimes(1);
+    expect(getCheckpoint(db, 'r1:goal-refinement:0')).toBeNull();
+    // The goal.refined event was emitted with ready=true.
+    const events = listEventsByType(db, 'r1', 'goal.refined');
+    expect(events).toHaveLength(1);
+    const payload = JSON.parse(events[0]?.payload_json ?? '{}') as { ready: boolean };
+    expect(payload.ready).toBe(true);
+  });
+
+  it('posts a goal-refinement checkpoint and re-calls refiner with section edits on comment', async () => {
+    let calls = 0;
+    const refiner = vi.fn(
+      async ({
+        rawGoal,
+        sectionEdits,
+      }: {
+        rawGoal: string;
+        sectionEdits?: Record<string, string>;
+      }) => {
+        calls += 1;
+        // First call returns unready; second call (after comment) returns ready.
+        if (calls === 1) return unreadyRefinement(rawGoal, 0);
+        // Verify the comment was parsed into a section edit.
+        expect(sectionEdits).toBeDefined();
+        expect(sectionEdits!['prd:goals']).toContain('add latency');
+        return readyRefinement(rawGoal);
+      },
+    );
+    const ctx = {
+      db,
+      runId: 'r1',
+      goal: 'todo app',
+      plan: plan([task('t1')]),
+      runsRoot: workdir,
+      pollIntervalMs: 25,
+      pollTimeoutMs: 5_000,
+      executor: async (): Promise<RunResult> => okResult(),
+      refiner,
+    };
+    // Wait for the first refinement checkpoint, send a section-targeted comment.
+    const refineComment = (async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline) {
+        if (getCheckpoint(db, 'r1:goal-refinement:0')) {
+          answerCheckpoint(db, 'r1:goal-refinement:0', 'comment:[prd:goals] add latency budget');
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      throw new Error('refinement checkpoint never appeared');
+    })();
+    const approval = approveSoon('r1:final-review');
+    const [result] = await Promise.all([runOrchestrator(ctx), refineComment, approval]);
+    expect(result.finalState).toBe('COMPLETED');
+    expect(refiner).toHaveBeenCalledTimes(2);
+    // The first goal-refinement checkpoint was answered (status moved off pending).
+    expect(getCheckpoint(db, 'r1:goal-refinement:0')?.status).toBe('answered');
+  });
+
+  it('FAILS the run cleanly when the user rejects refinement', async () => {
+    const refiner = vi.fn(async ({ rawGoal }: { rawGoal: string }) =>
+      unreadyRefinement(rawGoal, 0),
+    );
+    const ctx = {
+      db,
+      runId: 'r1',
+      goal: 'todo app',
+      plan: plan([task('t1')]),
+      runsRoot: workdir,
+      pollIntervalMs: 25,
+      pollTimeoutMs: 5_000,
+      executor: async (): Promise<RunResult> => okResult(),
+      refiner,
+    };
+    const reject = (async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline) {
+        if (getCheckpoint(db, 'r1:goal-refinement:0')) {
+          answerCheckpoint(db, 'r1:goal-refinement:0', 'reject');
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      throw new Error('refinement checkpoint never appeared');
+    })();
+    const [result] = await Promise.all([runOrchestrator(ctx), reject]);
+    expect(result.finalState).toBe('FAILED');
+    expect(getRun(db, 'r1')?.status).toBe('FAILED');
+    expect(refiner).toHaveBeenCalledTimes(1);
+  });
+
+  it('caps iterations at MAX_REFINEMENT_ITERATIONS and falls through to PLANNING', async () => {
+    const refiner = vi.fn(async ({ rawGoal }: { rawGoal: string }) =>
+      unreadyRefinement(rawGoal, 0),
+    );
+    const ctx = {
+      db,
+      runId: 'r1',
+      goal: 'todo app',
+      plan: plan([task('t1')]),
+      runsRoot: workdir,
+      pollIntervalMs: 25,
+      pollTimeoutMs: 5_000,
+      executor: async (): Promise<RunResult> => okResult(),
+      refiner,
+    };
+    // Comment three times in a row — never approve, never reject.
+    const commentLoop = (async () => {
+      for (let i = 0; i < 3; i += 1) {
+        const id = `r1:goal-refinement:${i}`;
+        const deadline = Date.now() + 3000;
+        while (Date.now() < deadline) {
+          if (getCheckpoint(db, id)) {
+            answerCheckpoint(db, id, `comment:[prd:goals] iteration ${i}`);
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 25));
+        }
+      }
+    })();
+    const approval = approveSoon('r1:final-review');
+    const [result] = await Promise.all([runOrchestrator(ctx), commentLoop, approval]);
+    expect(result.finalState).toBe('COMPLETED');
+    // Refiner called exactly MAX (3) times.
+    expect(refiner).toHaveBeenCalledTimes(3);
+    // Audit log records the cap-out.
+    const events = listEventsByType(db, 'r1', 'goal.refined');
+    const last = events.at(-1);
+    const payload = JSON.parse(last?.payload_json ?? '{}') as { decision?: string };
+    expect(payload.decision).toBe('iteration-cap');
   });
 });
 
