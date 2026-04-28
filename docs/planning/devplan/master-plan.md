@@ -36,7 +36,7 @@ Order of execution (top to bottom). Each sprint is its own branch (`dev/<id>-…
 | 6   | 8.2     | RunSnapshot gets tokens + costMode                     | shipped     |
 | 7   | 8.3     | CostTicker dual mode (tokens vs usd)                   | shipped     |
 | 8   | 8.4     | Rate table externalize + USD-equivalent toggle         | shipped     |
-| 9   | 4D.2    | Tauri invoke wiring (CLI sidecar replaces mocks)       | queued      |
+| 9   | 4D.2    | Tauri invoke wiring (CLI sidecar replaces mocks)       | partial     |
 | 10  | 4D.3    | Release CI scaffold (tag → tauri build → artifact)     | queued      |
 | 11  | 4D.4    | Cross-OS matrix (ubuntu/macos/windows) + AppImage/dmg  | queued      |
 | 12  | 9       | Real-API mode toggle (partial — OS sandbox deferred)   | queued      |

@@ -23,6 +23,15 @@ import { makeMockEventsTransport } from './hooks/mockEventsTransport.js';
 import { makeMockFinalReviewTransport } from './hooks/mockFinalReviewTransport.js';
 import { makeMockPlanTransport } from './hooks/mockPlanTransport.js';
 import { makeMockTransport } from './hooks/mockTransport.js';
+import {
+  makeTauriAskWikiTransport,
+  makeTauriCheckpointTransport,
+  makeTauriEventsTransport,
+  makeTauriFinalReviewTransport,
+  makeTauriPlanListTransport,
+  makeTauriRunSnapshotTransport,
+  tauriStartRun,
+} from './hooks/tauriTransports.js';
 import type { AskWikiTransport } from './hooks/useAskWiki.js';
 import { useCheckpoints, type CheckpointTransport } from './hooks/useCheckpoints.js';
 import { useEvents, type EventsTransport } from './hooks/useEvents.js';
@@ -32,6 +41,7 @@ import { usePlanList, type PlanListTransport } from './hooks/usePlanList.js';
 import { useRunSnapshot, type RunSnapshotTransport } from './hooks/useRunSnapshot.js';
 import { useCurrentPanel, type Panel, PANELS, navigate } from './router.js';
 import { cn } from './lib/utils.js';
+import { isTauri } from './lib/tauriRuntime.js';
 
 const PANEL_LABEL: Record<Panel, string> = {
   status: 'Status',
@@ -161,37 +171,57 @@ export default function App({
   const [activeGoal, setActiveGoal] = useState<string | null>(null);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   useKeyboardShortcuts({ onHelp: () => setHelpOpen(true) });
+  // 4D.2: when running inside the Tauri shell, default to the real
+  // transports. Browser (mock) transports stay the default outside
+  // the desktop runtime so dev-mode + tests behave the same as before.
+  const desktop = isTauri();
   const resolvedTransport = useMemo(
-    () => transport ?? makeMockTransport(activeGoal ?? ''),
-    [transport, activeGoal],
+    () =>
+      transport ??
+      (desktop ? makeTauriRunSnapshotTransport() : makeMockTransport(activeGoal ?? '')),
+    [transport, desktop, activeGoal],
   );
   const resolvedCheckpointTransport = useMemo(
-    () => checkpointTransport ?? makeMockCheckpointTransport(),
-    [checkpointTransport],
+    () =>
+      checkpointTransport ??
+      (desktop ? makeTauriCheckpointTransport() : makeMockCheckpointTransport()),
+    [checkpointTransport, desktop],
   );
   const resolvedPlanTransport = useMemo(
-    () => planTransport ?? makeMockPlanTransport(),
-    [planTransport],
+    () => planTransport ?? (desktop ? makeTauriPlanListTransport() : makeMockPlanTransport()),
+    [planTransport, desktop],
   );
   const resolvedEventsTransport = useMemo(
-    () => eventsTransport ?? makeMockEventsTransport(),
-    [eventsTransport],
+    () => eventsTransport ?? (desktop ? makeTauriEventsTransport() : makeMockEventsTransport()),
+    [eventsTransport, desktop],
   );
   const resolvedFinalReviewTransport = useMemo(
-    () => finalReviewTransport ?? makeMockFinalReviewTransport(),
-    [finalReviewTransport],
+    () =>
+      finalReviewTransport ??
+      (desktop ? makeTauriFinalReviewTransport() : makeMockFinalReviewTransport()),
+    [finalReviewTransport, desktop],
   );
   const resolvedAskWikiTransport = useMemo(
-    () => askWikiTransport ?? makeMockAskWikiTransport(),
-    [askWikiTransport],
+    () => askWikiTransport ?? (desktop ? makeTauriAskWikiTransport() : makeMockAskWikiTransport()),
+    [askWikiTransport, desktop],
   );
   const handleGoal = useCallback(
     (goal: string) => {
       setActiveGoal(goal);
-      setActiveRunId(makeRunId());
+      // In Tauri the run id comes from the Rust side (so the renderer
+      // and the orchestrator agree). In browser mode synthesize a local
+      // id so the mock transport has something to key on.
+      if (desktop) {
+        void tauriStartRun(goal)
+          .then(({ runId }) => setActiveRunId(runId))
+          // eslint-disable-next-line no-console
+          .catch((err: unknown) => console.error('runs_start failed', err));
+      } else {
+        setActiveRunId(makeRunId());
+      }
       if (onGoal) onGoal(goal);
     },
-    [onGoal],
+    [onGoal, desktop],
   );
 
   const panels: Record<Panel, ReactNode> = {
