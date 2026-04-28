@@ -11,6 +11,8 @@ import type { RunSnapshotTransport } from './useRunSnapshot.js';
 // a user can read the bento.
 const TICK_MS = 5000;
 
+const TOKEN_CAP_TOTAL = 1_000_000;
+
 export function makeMockTransport(initialGoal: string): RunSnapshotTransport {
   return {
     subscribe(runId, onSnapshot) {
@@ -31,6 +33,9 @@ export function makeMockTransport(initialGoal: string): RunSnapshotTransport {
           startedAt,
           spentUsd: 0,
           budgetUsd: 20,
+          tokens: { input: 1_200, output: 200, cached: 0 },
+          tokenCap: { total: TOKEN_CAP_TOTAL },
+          costMode: 'tokens',
           agents: [
             {
               id: `${runId}-planner`,
@@ -38,6 +43,7 @@ export function makeMockTransport(initialGoal: string): RunSnapshotTransport {
               provider: 'claude-code',
               status: 'running',
               spentUsd: 0,
+              tokens: { input: 1_200, output: 200, cached: 0 },
               lastLine: `Planning: ${goalSlice}`,
             },
           ],
@@ -51,6 +57,9 @@ export function makeMockTransport(initialGoal: string): RunSnapshotTransport {
               startedAt,
               spentUsd: 0.42,
               budgetUsd: 20,
+              tokens: { input: 18_400, output: 6_200, cached: 4_800 },
+              tokenCap: { total: TOKEN_CAP_TOTAL },
+              costMode: 'tokens',
               agents: [
                 {
                   id: `${runId}-planner`,
@@ -58,6 +67,7 @@ export function makeMockTransport(initialGoal: string): RunSnapshotTransport {
                   provider: 'claude-code',
                   status: 'completed',
                   spentUsd: 0.12,
+                  tokens: { input: 4_400, output: 1_200, cached: 1_500 },
                 },
                 {
                   id: `${runId}-coder`,
@@ -65,6 +75,7 @@ export function makeMockTransport(initialGoal: string): RunSnapshotTransport {
                   provider: 'codex',
                   status: 'running',
                   spentUsd: 0.3,
+                  tokens: { input: 14_000, output: 5_000, cached: 3_300 },
                   lastLine: 'Writing files…',
                 },
               ],
@@ -78,6 +89,9 @@ export function makeMockTransport(initialGoal: string): RunSnapshotTransport {
                 endedAt: new Date().toISOString(),
                 spentUsd: 0.71,
                 budgetUsd: 20,
+                tokens: { input: 32_000, output: 11_500, cached: 9_200 },
+                tokenCap: { total: TOKEN_CAP_TOTAL },
+                costMode: 'tokens',
                 agents: [
                   {
                     id: `${runId}-planner`,
@@ -85,6 +99,7 @@ export function makeMockTransport(initialGoal: string): RunSnapshotTransport {
                     provider: 'claude-code',
                     status: 'completed',
                     spentUsd: 0.12,
+                    tokens: { input: 4_400, output: 1_200, cached: 1_500 },
                   },
                   {
                     id: `${runId}-coder`,
@@ -92,6 +107,7 @@ export function makeMockTransport(initialGoal: string): RunSnapshotTransport {
                     provider: 'codex',
                     status: 'completed',
                     spentUsd: 0.59,
+                    tokens: { input: 27_600, output: 10_300, cached: 7_700 },
                     lastLine: 'Wrote 4 files in 12 s.',
                   },
                 ],

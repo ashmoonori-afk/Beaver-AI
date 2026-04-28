@@ -33,8 +33,8 @@ Order of execution (top to bottom). Each sprint is its own branch (`dev/<id>-…
 | 3   | 7.2     | Refined-goal UI surface (new checkpoint kind)          | shipped     |
 | 4   | 7.3     | Pre-coder handoff validation                           | shipped     |
 | 5   | 8.1     | UsageSchema gains input/output/cached token fields     | shipped     |
-| 6   | 8.2     | RunSnapshot gets tokens + costMode                     | queued      |
-| 7   | 8.3     | CostTicker dual mode (tokens vs usd)                   | queued      |
+| 6   | 8.2     | RunSnapshot gets tokens + costMode                     | shipped     |
+| 7   | 8.3     | CostTicker dual mode (tokens vs usd)                   | shipped     |
 | 8   | 8.4     | Rate table externalize + USD-equivalent toggle         | queued      |
 | 9   | 4D.2    | Tauri invoke wiring (CLI sidecar replaces mocks)       | queued      |
 | 10  | 4D.3    | Release CI scaffold (tag → tauri build → artifact)     | queued      |

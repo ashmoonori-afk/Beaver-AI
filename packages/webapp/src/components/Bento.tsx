@@ -16,7 +16,13 @@ export function Bento({ snapshot }: { snapshot: RunSnapshot }) {
           <StateBadge state={snapshot.state} />
         </Card>
         <Card>
-          <CostTicker spentUsd={snapshot.spentUsd} budgetUsd={snapshot.budgetUsd} />
+          <CostTicker
+            spentUsd={snapshot.spentUsd}
+            budgetUsd={snapshot.budgetUsd}
+            {...(snapshot.tokens !== undefined && { tokens: snapshot.tokens })}
+            {...(snapshot.tokenCap !== undefined && { tokenCap: snapshot.tokenCap })}
+            {...(snapshot.costMode !== undefined && { costMode: snapshot.costMode })}
+          />
         </Card>
         <Card>
           <ElapsedClock

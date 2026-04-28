@@ -18,12 +18,35 @@ export type AgentRole = 'planner' | 'coder' | 'reviewer' | 'tester' | 'integrato
 
 export type AgentRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'killed';
 
+/**
+ * Phase 8 (D19): token counts as a first-class metric. Cost ticker
+ * displays these directly when costMode==='tokens' (default for
+ * subscription-CLI mode). When costMode==='usd' (direct-API mode) the
+ * renderer falls back to spentUsd / budgetUsd.
+ */
+export interface TokenUsage {
+  input: number;
+  output: number;
+  cached: number;
+}
+
+export interface TokenCap {
+  /** Total input + output token cap for the run. Cached tokens don't
+   *  count against the cap (Anthropic / OpenAI subscription tiers
+   *  don't bill cache hits separately). */
+  total: number;
+}
+
+export type CostMode = 'tokens' | 'usd';
+
 export interface AgentSummary {
   id: string;
   role: AgentRole;
   provider: 'claude-code' | 'codex';
   status: AgentRunStatus;
   spentUsd: number;
+  /** Phase 8 — per-agent token totals. Optional so older transports stay valid. */
+  tokens?: TokenUsage;
   /** Last line of the agent's transcript — short caption shown in the card. */
   lastLine?: string;
 }
@@ -37,6 +60,12 @@ export interface RunSnapshot {
   endedAt?: string;
   spentUsd: number;
   budgetUsd: number;
+  /** Phase 8 — run-level token totals. Sum of per-agent tokens. */
+  tokens?: TokenUsage;
+  /** Phase 8 — token cap. When omitted, defaults to 1M total. */
+  tokenCap?: TokenCap;
+  /** Phase 8 — selects which unit the CostTicker renders. Default 'tokens'. */
+  costMode?: CostMode;
   agents: AgentSummary[];
   openCheckpoints: number;
 }
