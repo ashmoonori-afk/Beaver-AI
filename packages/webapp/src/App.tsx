@@ -7,7 +7,7 @@
 // `panels` is a Record<Panel, ReactNode> so adding a new Panel literal
 // becomes a compile-time hole, not a silent fall-through to a stub.
 
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { Bento } from './components/Bento.js';
 import { CheckpointPanel } from './components/CheckpointPanel.js';
@@ -205,17 +205,29 @@ export default function App({
     () => askWikiTransport ?? (desktop ? makeTauriAskWikiTransport() : makeMockAskWikiTransport()),
     [askWikiTransport, desktop],
   );
+  // Guard against double-submit while a tauri runs_start is in flight.
+  // Without this, a quick second click would spawn a second Rust
+  // sidecar; whichever response resolved last would set activeRunId,
+  // which could then point at the wrong run.
+  const startingRef = useRef(false);
   const handleGoal = useCallback(
     (goal: string) => {
+      if (startingRef.current) return;
       setActiveGoal(goal);
       // In Tauri the run id comes from the Rust side (so the renderer
       // and the orchestrator agree). In browser mode synthesize a local
       // id so the mock transport has something to key on.
       if (desktop) {
-        void tauriStartRun(goal)
+        startingRef.current = true;
+        tauriStartRun(goal)
           .then(({ runId }) => setActiveRunId(runId))
-          // eslint-disable-next-line no-console
-          .catch((err: unknown) => console.error('runs_start failed', err));
+          .catch((err: unknown) => {
+            // eslint-disable-next-line no-console
+            console.error('runs_start failed', err);
+          })
+          .finally(() => {
+            startingRef.current = false;
+          });
       } else {
         setActiveRunId(makeRunId());
       }

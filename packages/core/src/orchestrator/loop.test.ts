@@ -223,6 +223,63 @@ describe('runOrchestrator — handoff validation (Phase 7.3)', () => {
     expect(listEventsByType(db, 'r1', 'handoff.failed')).toHaveLength(1);
   });
 
+  it('FAILS the run when budgetUsd sum exceeds runCapUsd', async () => {
+    const ctx = {
+      db,
+      runId: 'r1',
+      goal: 'g',
+      plan: plan([
+        { ...task('t1'), budgetUsd: 12 },
+        { ...task('t2'), budgetUsd: 12 },
+      ]),
+      runsRoot: workdir,
+      pollIntervalMs: 25,
+      pollTimeoutMs: 5_000,
+      runCapUsd: 20,
+      executor: async (): Promise<RunResult> => okResult(),
+    };
+    const result = await runOrchestrator(ctx);
+    expect(result.finalState).toBe('FAILED');
+    expect(getCheckpoint(db, 'r1:handoff-escalation')).not.toBeNull();
+    const events = listEventsByType(db, 'r1', 'handoff.failed');
+    expect(events).toHaveLength(1);
+    const payload = JSON.parse(events[0]?.payload_json ?? '{}') as {
+      errors: Array<{ validator: string }>;
+    };
+    expect(payload.errors.some((e) => e.validator === 'budget-sum')).toBe(true);
+  });
+
+  it('FAILS the run on a dependency cycle (defensive even when PlanSchema accepted it)', async () => {
+    // Construct a cyclic plan directly (skipping PlanSchema parse) to
+    // prove the orchestrator's pre-dispatch check is independent.
+    const cyclicPlan = {
+      version: 1,
+      goal: 'build',
+      createdAt: '2026-04-27T00:00:00Z',
+      tasks: [
+        { ...task('a'), dependsOn: ['b'] },
+        { ...task('b'), dependsOn: ['a'] },
+      ],
+    };
+    const ctx = {
+      db,
+      runId: 'r1',
+      goal: 'g',
+      plan: cyclicPlan,
+      runsRoot: workdir,
+      pollIntervalMs: 25,
+      pollTimeoutMs: 5_000,
+      executor: async (): Promise<RunResult> => okResult(),
+    };
+    const result = await runOrchestrator(ctx);
+    expect(result.finalState).toBe('FAILED');
+    const events = listEventsByType(db, 'r1', 'handoff.failed');
+    const payload = JSON.parse(events[0]?.payload_json ?? '{}') as {
+      errors: Array<{ validator: string }>;
+    };
+    expect(payload.errors.some((e) => e.validator === 'no-dependency-cycle')).toBe(true);
+  });
+
   it('skipHandoffValidation=true bypasses the validator', async () => {
     // Same bad plan, but the test injects skipHandoffValidation so
     // existing tests with intentional shapes still run end-to-end.

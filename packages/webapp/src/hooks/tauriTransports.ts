@@ -43,16 +43,24 @@ export function makeTauriRunSnapshotTransport(): RunSnapshotTransport {
       // cleanup path always works even if the subscription resolves
       // after the component already unmounted.
       let cancelled = false;
-      void listen<RunSnapshot>(channel, (e) => {
+      listen<RunSnapshot>(channel, (e) => {
         if (cancelled) return;
         onSnapshot(e.payload);
-      }).then((unlisten) => {
-        if (cancelled) {
-          unlisten();
-          return;
-        }
-        cancel = unlisten;
-      });
+      })
+        .then((unlisten) => {
+          if (cancelled) {
+            unlisten();
+            return;
+          }
+          cancel = unlisten;
+        })
+        .catch((err: unknown) => {
+          // Don't silently lose IPC failures: a rejected listen() means
+          // the channel was never bound, so future emits will be dropped.
+          if (cancelled) return;
+          // eslint-disable-next-line no-console
+          console.error(`[beaver/tauri] listen(${channel}) failed`, err);
+        });
       return () => {
         cancelled = true;
         if (cancel) cancel();

@@ -118,6 +118,25 @@ describe('<CostTicker /> tokens mode (Phase 8.3)', () => {
     expect(fill.className).toMatch(/bg-danger-500/);
   });
 
+  it('cached tokens do NOT contribute to pct (only input+output count)', () => {
+    // 350K + 350K billable = 70 % of 1M cap → warn (accent-700).
+    // 500K cached must NOT push it to danger.
+    render(
+      <CostTicker
+        spentUsd={0}
+        budgetUsd={20}
+        tokens={{ input: 350_000, output: 350_000, cached: 500_000 }}
+        tokenCap={tokenCap}
+        costMode="tokens"
+      />,
+    );
+    const bar = screen.getByRole('progressbar');
+    expect(bar.getAttribute('aria-valuenow')).toBe('70');
+    const fill = bar.firstElementChild as HTMLElement;
+    expect(fill.className).toMatch(/bg-accent-700/);
+    expect(fill.className).not.toMatch(/bg-danger-500/);
+  });
+
   it('flips to accent-700 (warn) when (input+output) >= 70 % of cap', () => {
     render(
       <CostTicker

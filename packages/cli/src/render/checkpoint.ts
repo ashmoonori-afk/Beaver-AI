@@ -40,6 +40,11 @@ function bodyFor(kind: CheckpointKind, prompt: string): string {
     case 'plan-approval':
     case 'final-review':
     case 'risky-change-confirmation':
+    case 'goal-refinement':
+      // Phase 7: refinement uses the same approve-style action shape.
+      // The structured rawGoal/enrichedGoal/assumptions/questions block
+      // is rendered as part of the prompt string by the orchestrator,
+      // so the CLI just shows the prompt + the standard action menu.
       return `${prompt}\n\n${color.prompt('[ approve | comment <text> | reject ]')}`;
     case 'budget-exceeded':
       return `${prompt}\n\n${color.prompt('[ stop | increase | continue-once ]')}`;

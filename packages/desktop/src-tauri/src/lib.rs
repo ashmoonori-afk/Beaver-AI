@@ -28,7 +28,6 @@ fn desktop_info() -> DesktopInfo {
 
 #[derive(Deserialize)]
 struct RunsStartArgs {
-    #[allow(dead_code)] // wired in 4D.2.x once sidecar streaming lands.
     goal: String,
 }
 
@@ -37,24 +36,36 @@ struct RunsStartResult {
     run_id: String,
 }
 
-/// Phase 4D.2 entry — assigns a run id and (in 4D.2.x) spawns the
-/// `node packages/cli/src/bin.ts run` sidecar with the goal as a
-/// positional arg. The sidecar's stdout stream is forwarded as
-/// `run.snapshot.<runId>` Tauri events.
-///
-/// For 4D.2 the command returns a fresh id so the renderer's existing
-/// flow runs end-to-end against the (still-mock) tauri transports.
-/// The actual sidecar spawn is gated on a follow-up sprint that
-/// finalizes the CLI's NDJSON contract + node-sea binary.
+/// Hard cap on goal-string length. 4 KB is generous for a free-text
+/// project goal but bounds the IPC argument before the 4D.2.x sidecar
+/// path turns it into a positional argv element.
+const MAX_GOAL_LEN: usize = 4096;
+
+/// Phase 4D.2 entry — validates the goal and assigns a run id. The
+/// 4D.2.x follow-up will spawn `node packages/cli/src/bin.ts run`
+/// as a sidecar with the goal as a positional argument; locking the
+/// length + non-empty invariants here keeps that path safe even when
+/// the sidecar shell-out lands.
 #[tauri::command]
-fn runs_start(_args: RunsStartArgs) -> RunsStartResult {
+fn runs_start(args: RunsStartArgs) -> Result<RunsStartResult, String> {
+    let trimmed = args.goal.trim();
+    if trimmed.is_empty() {
+        return Err("goal: empty after trim".into());
+    }
+    if trimmed.len() > MAX_GOAL_LEN {
+        return Err(format!(
+            "goal: {} chars exceeds {}-char cap",
+            trimmed.len(),
+            MAX_GOAL_LEN
+        ));
+    }
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    RunsStartResult {
+    Ok(RunsStartResult {
         run_id: format!("r-{stamp}"),
-    }
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

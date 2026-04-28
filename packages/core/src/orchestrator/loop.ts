@@ -119,26 +119,35 @@ function postHandoffEscalation(
   state: RunState,
   errors: readonly HandoffError[],
 ): RunState {
-  const summary = errors.map((e) => `[${e.validator}] ${e.scope}: ${e.message}`).join('\n');
-  insertCheckpoint(ctx.db, {
-    id: `${ctx.runId}:handoff-escalation`,
-    run_id: ctx.runId,
-    kind: ESCALATION_KIND,
-    status: 'pending',
-    prompt: `Handoff validation failed before dispatch:\n\n${summary}`,
-  });
-  insertEvent(ctx.db, {
-    run_id: ctx.runId,
-    ts: now(),
-    source: SOURCE,
-    type: 'handoff.failed',
-    payload_json: JSON.stringify({ errors }),
-  });
+  // Drive the FSM to FAILED first so even if the audit-log writes
+  // below throw (DB constraint, locked file, ...), the run never
+  // strands in a non-terminal status. The checkpoint + event are
+  // best-effort metadata; the FAIL transition is the contract.
   const next = applyTransition(ctx, state, {
     type: 'FAIL',
     reason: `handoff: ${errors.length} validator(s) failed`,
   });
   updateRunStatus(ctx.db, ctx.runId, 'FAILED');
+  const summary = errors.map((e) => `[${e.validator}] ${e.scope}: ${e.message}`).join('\n');
+  try {
+    insertCheckpoint(ctx.db, {
+      id: `${ctx.runId}:handoff-escalation`,
+      run_id: ctx.runId,
+      kind: ESCALATION_KIND,
+      status: 'pending',
+      prompt: `Handoff validation failed before dispatch:\n\n${summary}`,
+    });
+    insertEvent(ctx.db, {
+      run_id: ctx.runId,
+      ts: now(),
+      source: SOURCE,
+      type: 'handoff.failed',
+      payload_json: JSON.stringify({ errors }),
+    });
+  } catch {
+    // Already FAILED; the human-facing breadcrumb just won't appear
+    // in the dashboard. The run cannot get stuck.
+  }
   return next;
 }
 

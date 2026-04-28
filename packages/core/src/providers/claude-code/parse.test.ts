@@ -60,6 +60,23 @@ describe('parseLine', () => {
     });
   });
 
+  it('lifts a tool_use block from a real Claude assistant content array (regression)', () => {
+    // Pre-fix the parser dropped tool_use blocks because the assistant
+    // branch returned early when text was empty. Now it falls through
+    // to the tool_use lifter.
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [{ type: 'tool_use', name: 'shell', input: { cmd: 'ls' }, id: 'tu_1' }],
+      },
+    });
+    expect(parseLine(line)).toMatchObject({
+      type: 'tool_use',
+      name: 'shell',
+      input: { cmd: 'ls' },
+    });
+  });
+
   it('omits cachedInputTokens when the source has no cache field', () => {
     const line = JSON.stringify({
       type: 'assistant',

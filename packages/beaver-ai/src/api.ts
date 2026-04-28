@@ -329,7 +329,14 @@ function startAutoApprover(db: Db, runId: string): () => void {
     try {
       const pending = listPendingCheckpoints(db, runId);
       for (const cp of pending) {
-        if (cp.kind === 'final-review' || cp.kind === 'plan-approval') {
+        // Phase 7 — goal-refinement is approve-style; auto-approve it
+        // alongside plan-approval / final-review so headless runs don't
+        // hang when the planner posts a refinement diff.
+        if (
+          cp.kind === 'final-review' ||
+          cp.kind === 'plan-approval' ||
+          cp.kind === 'goal-refinement'
+        ) {
           answerCheckpoint(db, cp.id, 'approve');
         }
       }

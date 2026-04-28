@@ -69,12 +69,18 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Tauri build
+      - name: Tauri build (windows / linux)
+        if: matrix.target != 'macos'
         env:
-          # Tauri updater self-signing (per 4D.0).
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS notarization — only consumed when target=macos.
+        run: pnpm --filter @beaver-ai/desktop tauri build
+
+      - name: Tauri build (macOS — notarization secrets scoped here only)
+        if: matrix.target == 'macos'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}

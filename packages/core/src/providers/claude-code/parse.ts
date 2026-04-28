@@ -43,6 +43,11 @@ export function parseLine(line: string): ClaudeStreamEvent | null {
 interface ClaudeRealAssistantContent {
   type?: string;
   text?: string;
+  /** Tool-use block fields — `id`/`name`/`input`. Anthropic emits these
+   *  alongside or instead of `text` blocks. */
+  id?: string;
+  name?: string;
+  input?: unknown;
 }
 interface ClaudeRealUsage {
   input_tokens?: number;
@@ -69,7 +74,21 @@ function liftRealClaudeEvent(raw: Record<string, unknown>): ClaudeStreamEvent | 
       .map((c) => c.text as string)
       .join('');
     if (text.length > 0) return { type: 'message_delta', text };
-    // text empty → fall through; usage block below handles rollup-only.
+    // No text — check for a tool_use block before falling through to
+    // the usage rollup. Real Claude emits one assistant event per
+    // tool call; if we don't lift it here, the event bus loses the
+    // signal entirely.
+    const tool = (msg.content ?? []).find(
+      (c) => c.type === 'tool_use' && typeof c.name === 'string',
+    );
+    if (tool && typeof tool.name === 'string') {
+      return {
+        type: 'tool_use',
+        name: tool.name,
+        ...(tool.input !== undefined ? { input: tool.input } : {}),
+      };
+    }
+    // text + tool_use empty → fall through; usage block handles rollup.
   }
   // result event: final response + cost. Surfaces error subtypes verbatim
   // so api.ts fallback logic can match "usage limit" / "rate limit" etc.
