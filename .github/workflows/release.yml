@@ -1,0 +1,90 @@
+name: release
+
+# Phase 4D.3 + 4D.4 — release CI scaffold + cross-OS matrix.
+#
+# Triggered on tag push (v*). Builds the desktop app on Windows, Linux,
+# and macOS in parallel. Each runner uploads its own artifacts to a
+# single draft GitHub Release. Code-signing (Tauri updater + macOS
+# notarization) is opt-in via repo secrets — when absent, the build
+# still produces unsigned artifacts (4D.0 lock: self-signed channel).
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows
+            bundle_paths: |
+              packages/desktop/src-tauri/target/release/bundle/msi/*.msi
+              packages/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          - os: ubuntu-22.04
+            target: linux
+            bundle_paths: |
+              packages/desktop/src-tauri/target/release/bundle/deb/*.deb
+              packages/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+          - os: macos-13
+            target: macos
+            bundle_paths: |
+              packages/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build deps
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Cache cargo + tauri target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Tauri build
+        env:
+          # Tauri updater self-signing (per 4D.0).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS notarization — only consumed when target=macos.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm --filter @beaver-ai/desktop tauri build
+
+      - name: Upload artifacts to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: ${{ matrix.bundle_paths }}
