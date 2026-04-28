@@ -40,6 +40,25 @@ use crate::workspace::ResolveError;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// Normalise a path for use in argv passed to a spawned Node process
+/// on Windows. Two transforms:
+///
+///  1. Strip the `\\?\` verbatim-path prefix that `fs::canonicalize`
+///     adds. Node 22+ tolerates UNC prefixes, but external tooling
+///     downstream (npm scripts, claude/codex CLIs) does not.
+///  2. Replace backslashes with forward slashes. **Node 24's
+///     `realpathSync` regressed on Windows drive-letter paths** —
+///     when the main-module resolver walks `C:\foo\bar\bin.mjs`, it
+///     calls `lstat('C:')` which throws EISDIR. Forward slashes side-
+///     step the broken decomposition.
+///
+/// Used for every path that crosses the Rust → Node boundary as argv.
+fn normalize_path_for_node_argv(p: &Path) -> String {
+    let s = p.to_string_lossy();
+    let stripped = s.strip_prefix(r"\\?\").unwrap_or(&s);
+    stripped.replace('\\', "/")
+}
+
 #[derive(Deserialize)]
 pub struct RunsStartArgs {
     pub goal: String,
@@ -98,7 +117,9 @@ fn resolve_sidecar_command(app: &AppHandle) -> Result<(PathBuf, Vec<String>), St
             if bin.ends_with(".ts") {
                 args.push("--import=tsx".to_string());
             }
-            args.push(bin);
+            // Normalise so Node 24's realpathSync regression doesn't
+            // bite the BEAVER_SIDECAR_BIN env-override path either.
+            args.push(normalize_path_for_node_argv(&bin_path));
             return Ok((node_path, args));
         }
     }
@@ -115,7 +136,8 @@ fn resolve_sidecar_command(app: &AppHandle) -> Result<(PathBuf, Vec<String>), St
              (a bundled Node binary is coming in v0.1.x)."
                 .to_string()
         })?;
-        return Ok((node, vec![bundled_bin.display().to_string()]));
+        // Node 24 regression workaround — see normalize_path_for_node_argv.
+        return Ok((node, vec![normalize_path_for_node_argv(&bundled_bin)]));
     }
 
     Err(format!(
@@ -183,21 +205,51 @@ fn make_run_id() -> String {
     format!("r-{stamp}-{n}")
 }
 
+/// Strip the Windows `\\?\` verbatim-path prefix if present, so the
+/// child process's cwd is a regular drive-letter path. Some external
+/// tools and Node APIs trip over UNC paths.
+fn strip_unc_prefix(p: &Path) -> PathBuf {
+    let s = p.to_string_lossy();
+    match s.strip_prefix(r"\\?\") {
+        Some(rest) => PathBuf::from(rest),
+        None => p.to_path_buf(),
+    }
+}
+
 pub fn spawn_run(app: &AppHandle, workdir: &Path, goal: &str) -> Result<String, String> {
     let goal = validate_goal(goal)?;
     let (cmd, args) = resolve_sidecar_command(app)?;
     let run_id = make_run_id();
 
-    // Capture stdout + stderr to files inside `<workdir>/.beaver/` so the
-    // user (and we) can diagnose silent failures. `Beaver.run()` will
-    // create `.beaver/` itself when it bootstraps the SQLite schema, but
-    // we need the directory NOW for the log file destinations — `mkdir
-    // -p` here is idempotent.
-    let beaver_dir = workdir.join(".beaver");
+    // Workdir from canonicalize() carries `\\?\` on Windows. Strip it
+    // so child processes (Node, claude CLI, codex CLI) get a normal
+    // drive-letter cwd.
+    let workdir_clean = strip_unc_prefix(workdir);
+
+    // Capture stdout + stderr to files inside `<workdir>/.beaver/` so
+    // the user (and we) can diagnose silent failures. `Beaver.run()`
+    // creates `.beaver/` itself when it bootstraps the SQLite schema,
+    // but we need the directory NOW for the log file destinations.
+    let beaver_dir = workdir_clean.join(".beaver");
     fs::create_dir_all(&beaver_dir)
         .map_err(|e| format!("failed to create {}: {e}", beaver_dir.display()))?;
     let stdout_log = beaver_dir.join("sidecar-stdout.log");
     let stderr_log = beaver_dir.join("sidecar-stderr.log");
+    let spawn_log = beaver_dir.join("sidecar-spawn.log");
+
+    // Diagnostic — write the exact (cmd, args, cwd) we're about to
+    // spawn. If something downstream fails silently the user can mail
+    // us this file rather than us having to add ad-hoc logging.
+    let _ = fs::write(
+        &spawn_log,
+        format!(
+            "cmd: {}\nargs: {:?}\ncwd: {}\n",
+            cmd.display(),
+            args,
+            workdir_clean.display()
+        ),
+    );
+
     let stdout_file = fs::File::create(&stdout_log)
         .map_err(|e| format!("failed to create {}: {e}", stdout_log.display()))?;
     let stderr_file = fs::File::create(&stderr_log)
@@ -210,7 +262,7 @@ pub fn spawn_run(app: &AppHandle, workdir: &Path, goal: &str) -> Result<String, 
         .arg("run")
         .arg("--no-server")
         .arg(goal)
-        .current_dir(workdir)
+        .current_dir(&workdir_clean)
         .stdout(Stdio::from(stdout_file))
         .stderr(Stdio::from(stderr_file))
         // BEAVER_REFINER + _PLANNER drive the W.12.4 auto-injection.
@@ -334,5 +386,42 @@ mod tests {
         if which_node().is_some() {
             assert!(which_node().unwrap().is_file());
         }
+    }
+
+    #[test]
+    fn normalize_strips_unc_prefix_and_forward_slashes() {
+        let p = PathBuf::from(r"\\?\C:\Program Files\Beaver\resources\sidecar\bin.mjs");
+        let norm = normalize_path_for_node_argv(&p);
+        assert!(!norm.starts_with(r"\\?\"));
+        assert!(!norm.contains('\\'));
+        assert_eq!(norm, "C:/Program Files/Beaver/resources/sidecar/bin.mjs");
+    }
+
+    #[test]
+    fn normalize_handles_plain_drive_path() {
+        let p = PathBuf::from(r"C:\Users\me\bin.mjs");
+        let norm = normalize_path_for_node_argv(&p);
+        assert_eq!(norm, "C:/Users/me/bin.mjs");
+    }
+
+    #[test]
+    fn normalize_handles_posix_path() {
+        let p = PathBuf::from("/home/me/bin.mjs");
+        let norm = normalize_path_for_node_argv(&p);
+        assert_eq!(norm, "/home/me/bin.mjs");
+    }
+
+    #[test]
+    fn strip_unc_prefix_normal_path_passthrough() {
+        let p = PathBuf::from(r"C:\foo\bar");
+        let stripped = strip_unc_prefix(&p);
+        assert_eq!(stripped, PathBuf::from(r"C:\foo\bar"));
+    }
+
+    #[test]
+    fn strip_unc_prefix_removes_verbatim_prefix() {
+        let p = PathBuf::from(r"\\?\C:\foo\bar");
+        let stripped = strip_unc_prefix(&p);
+        assert_eq!(stripped, PathBuf::from(r"C:\foo\bar"));
     }
 }
