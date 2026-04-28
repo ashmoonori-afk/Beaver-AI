@@ -102,8 +102,9 @@ describe('deferred transport warnings (v0.1.x not-yet-wired)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const t1 = makeTauriAskWikiTransport();
     const t2 = makeTauriAskWikiTransport();
-    await t1.ask('q1');
-    await t2.ask('q2');
+    const ac = new AbortController();
+    await t1.ask('q1', ac.signal);
+    await t2.ask('q2', ac.signal);
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });
