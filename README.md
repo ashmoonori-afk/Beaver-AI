@@ -1,3 +1,13 @@
+```
+
+ ▄▄▄▄▄
+ █    █  ▄▄▄    ▄▄▄   ▄   ▄   ▄▄▄    ▄ ▄▄
+ █▄▄▄▄▀ █▀  █  ▀   █  ▀▄ ▄▀  █▀  █   █▀  ▀
+ █    █ █▀▀▀▀  ▄▀▀▀█   █▄█   █▀▀▀▀   █
+ █▄▄▄▄▀ ▀█▄▄▀  ▀▄▄▀█    █    ▀█▄▄▀   █
+
+```
+
 # Beaver AI
 
 > Fully autonomous local development orchestrator. Drives **Claude Code + Codex** agents through `plan → execute → review → integrate` loops with strong policy guardrails (sandbox, USD budget, hooks). Pauses only at well-defined human checkpoints.

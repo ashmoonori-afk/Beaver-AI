@@ -84,6 +84,42 @@ pub struct RunRow {
     pub spent_usd: f64,
 }
 
+/// UX-2 (run history) — list every run in the active project most-
+/// recent first. Includes pending and terminal runs so the renderer
+/// can surface a checkpoint-pending run that the user closed earlier.
+#[derive(Deserialize)]
+pub struct RunsListArgs {
+    #[serde(default)]
+    pub project_path: Option<String>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+pub fn runs_list(args: RunsListArgs) -> Result<Vec<RunRow>, DbError> {
+    let conn = open_readonly(args.project_path.as_deref())?;
+    let limit = args.limit.unwrap_or(50).min(500);
+    let mut stmt = conn.prepare(
+        "SELECT id, project_id, goal, status, started_at, ended_at, budget_usd, \
+         COALESCE((SELECT SUM(usd) FROM costs WHERE costs.run_id = runs.id), 0) AS spent_usd \
+         FROM runs ORDER BY started_at DESC LIMIT ?1",
+    )?;
+    let rows = stmt
+        .query_map([limit], |r| {
+            Ok(RunRow {
+                id: r.get(0)?,
+                project_id: r.get(1)?,
+                goal: r.get(2)?,
+                status: r.get(3)?,
+                started_at: r.get(4)?,
+                ended_at: r.get(5)?,
+                budget_usd: r.get(6)?,
+                spent_usd: r.get(7)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 pub fn runs_get(args: RunsGetArgs) -> Result<Option<RunRow>, DbError> {
     let conn = open_readonly(args.project_path.as_deref())?;
     let mut stmt = conn.prepare(

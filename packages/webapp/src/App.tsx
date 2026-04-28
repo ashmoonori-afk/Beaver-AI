@@ -15,8 +15,10 @@ import { ErrorBanner } from './components/ErrorBanner.js';
 import { GoalBox } from './components/GoalBox.js';
 import { HelpDialog } from './components/HelpDialog.js';
 import { LogsPanel } from './components/LogsPanel.js';
+import { PhaseTimeline } from './components/PhaseTimeline.js';
 import { PlanPanel } from './components/PlanPanel.js';
 import { ReviewPanel } from './components/ReviewPanel.js';
+import { RunsList } from './components/RunsList.js';
 import { WikiSearch } from './components/WikiSearch.js';
 import { WorkspaceBanner } from './components/WorkspaceBanner.js';
 import { makeMockAskWikiTransport } from './hooks/mockAskWikiTransport.js';
@@ -41,6 +43,7 @@ import { useFinalReview, type FinalReviewTransport } from './hooks/useFinalRevie
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { usePlanList, type PlanListTransport } from './hooks/usePlanList.js';
 import { useRunSnapshot, type RunSnapshotTransport } from './hooks/useRunSnapshot.js';
+import { useRunsList } from './hooks/useRunsList.js';
 import { useWorkspace } from './hooks/useWorkspace.js';
 import { classifyError, type ClassifiedError } from './lib/errorMessages.js';
 import { useCurrentPanel, type Panel, PANELS, navigate } from './router.js';
@@ -89,23 +92,68 @@ function makeRunId(): string {
 interface StatusPanelProps {
   activeRunId: string | null;
   transport: RunSnapshotTransport;
+  eventsTransport: EventsTransport;
   onSubmit: (goal: string) => void;
   /** Tauri-only: when no workspace is selected we render a folder
    *  picker card instead of the GoalBox so the user can't submit a
    *  goal that has nowhere to land. Browser mode passes null. */
   workspaceCard?: ReactNode;
+  /** UX-2: render the run history sidebar when in Tauri mode. */
+  runsSidebar?: ReactNode;
+  /** UX-4: Continue / iterate-on-completed CTA shown when the active
+   *  run is in a terminal state. */
+  continueCta?: ReactNode;
 }
 
-function StatusPanel({ activeRunId, transport, onSubmit, workspaceCard }: StatusPanelProps) {
+function StatusPanel({
+  activeRunId,
+  transport,
+  eventsTransport,
+  onSubmit,
+  workspaceCard,
+  runsSidebar,
+  continueCta,
+}: StatusPanelProps) {
   const snapshot = useRunSnapshot(activeRunId, transport);
+  // UX-5: feed the same events stream that drives the Logs panel
+  // into the PhaseTimeline so the user sees what's happening now
+  // without leaving the Status panel.
+  const events = useEvents(activeRunId, eventsTransport);
+  const isTerminal =
+    snapshot?.state === 'COMPLETED' ||
+    snapshot?.state === 'FAILED' ||
+    snapshot?.state === 'ABORTED';
+
   if (!activeRunId || !snapshot) {
     return (
-      <section className="flex h-[calc(100vh-4rem)] items-center justify-center">
-        {workspaceCard ?? <GoalBox onSubmit={onSubmit} />}
+      <section className="grid gap-6 py-6 lg:grid-cols-[1fr,18rem]">
+        <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center">
+          {workspaceCard ?? <GoalBox onSubmit={onSubmit} />}
+        </div>
+        {runsSidebar ? (
+          <aside className="lg:sticky lg:top-6 lg:self-start">
+            <h2 className="mb-2 text-caption uppercase tracking-wide text-text-500">Runs</h2>
+            {runsSidebar}
+          </aside>
+        ) : null}
       </section>
     );
   }
-  return <Bento snapshot={snapshot} />;
+  return (
+    <section className="grid gap-6 py-6 lg:grid-cols-[1fr,18rem]">
+      <div className="flex flex-col gap-6">
+        <Bento snapshot={snapshot} />
+        <PhaseTimeline events={events} currentState={snapshot.state} />
+        {isTerminal && continueCta ? continueCta : null}
+      </div>
+      {runsSidebar ? (
+        <aside className="lg:sticky lg:top-6 lg:self-start">
+          <h2 className="mb-2 text-caption uppercase tracking-wide text-text-500">Runs</h2>
+          {runsSidebar}
+        </aside>
+      ) : null}
+    </section>
+  );
 }
 
 function CheckpointsPanel({
@@ -184,8 +232,10 @@ export default function App({
   // the desktop runtime so dev-mode + tests behave the same as before.
   const desktop = isTauri();
   const workspace = useWorkspace();
+  const runs = useRunsList();
   const [bannerError, setBannerError] = useState<ClassifiedError | null>(null);
   const lastGoalRef = useRef<string | null>(null);
+  const [continueDraft, setContinueDraft] = useState<string>('');
   // review-pass v0.1: in desktop mode the transport doesn't depend on
   // activeGoal — re-creating it on every keystroke caused
   // useRunSnapshot to re-subscribe and blink the Bento. Split the
@@ -274,6 +324,43 @@ export default function App({
     [workspace, handleGoal],
   );
 
+  /** UX-1 — clear the active run so the GoalBox returns. The previous
+   *  run remains in SQLite (visible from the Runs panel UX-2) so this
+   *  is non-destructive: it only resets the renderer-side selection. */
+  const handleStartOver = useCallback(() => {
+    setActiveRunId(null);
+    setActiveGoal(null);
+    setBannerError(null);
+    setContinueDraft('');
+    navigate('status');
+  }, []);
+
+  /** UX-2/UX-3 — re-key onto a previous run from the runs sidebar.
+   *  The existing transports re-subscribe automatically since they
+   *  depend on activeRunId. Pending-review runs land back in the
+   *  CheckpointPanel where the user can answer. */
+  const handleSelectRun = useCallback((runId: string) => {
+    setActiveRunId(runId);
+    setActiveGoal(null);
+    setBannerError(null);
+    setContinueDraft('');
+  }, []);
+
+  /** UX-4 — start a follow-up run using the previous goal as context.
+   *  v0.1 keeps the orchestrator stateless across runs: we prepend the
+   *  previous goal to the new draft so the planner/refiner can see
+   *  what was attempted. v0.1.x will thread BEAVER_PARENT_RUN_ID and
+   *  load the prior run's plan as additional context. */
+  const handleContinueRun = useCallback(() => {
+    const prior = runs.find((r) => r.id === activeRunId);
+    const draft = continueDraft.trim();
+    if (!draft) return;
+    const followUp = prior
+      ? `Continue from previous goal: "${prior.goal}"\n\nNew request:\n${draft}`
+      : draft;
+    handleGoal(followUp);
+  }, [runs, activeRunId, continueDraft, handleGoal]);
+
   // Tauri-only: block goal submission until a workspace is picked, by
   // rendering the picker card (or its loading variant) in the GoalBox
   // slot. Browser mode keeps the GoalBox so demo/dev flows continue
@@ -294,13 +381,52 @@ export default function App({
       />
     ) : null;
 
+  // UX-2/UX-3 — render the runs sidebar in Tauri mode only (browser
+  // mode has no run history surface).
+  const runsSidebar = desktop ? (
+    <RunsList runs={runs} activeRunId={activeRunId} onSelect={handleSelectRun} />
+  ) : null;
+
+  // UX-4 — when the active run is in a terminal state, render a
+  // follow-up draft box so the user can iterate.
+  const continueCta = (
+    <section
+      className="rounded-card border border-surface-700 bg-surface-800 p-4"
+      aria-label="Continue from this run"
+    >
+      <h3 className="text-body font-medium text-text-50">Anything to refine?</h3>
+      <p className="mt-1 text-caption text-text-400">
+        This run is finished. Type what's still missing or what you'd like changed; Beaver will kick
+        off a follow-up run that uses this run's goal as context.
+      </p>
+      <textarea
+        value={continueDraft}
+        onChange={(e) => setContinueDraft(e.target.value)}
+        placeholder="e.g. Add input validation to the /login endpoint"
+        rows={3}
+        className="mt-3 w-full resize-y rounded-card border border-surface-600 bg-surface-900 px-3 py-2 text-body text-text-50 placeholder:text-text-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+      />
+      <button
+        type="button"
+        onClick={handleContinueRun}
+        disabled={continueDraft.trim().length === 0}
+        className="mt-3 inline-flex items-center gap-1.5 rounded-card bg-accent-500 px-4 py-2 text-body text-surface-900 transition-colors hover:bg-accent-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Continue run
+      </button>
+    </section>
+  );
+
   const panels: Record<Panel, ReactNode> = {
     status: (
       <StatusPanel
         activeRunId={activeRunId}
         transport={resolvedTransport}
+        eventsTransport={resolvedEventsTransport}
         onSubmit={handleGoal}
         {...(workspaceCard !== null ? { workspaceCard } : {})}
+        {...(runsSidebar !== null ? { runsSidebar } : {})}
+        continueCta={continueCta}
       />
     ),
     checkpoints: (
@@ -331,6 +457,18 @@ export default function App({
             />
           ) : null}
           <Nav active={panel} />
+          {activeRunId !== null ? (
+            <button
+              type="button"
+              onClick={handleStartOver}
+              className="inline-flex items-center gap-1.5 rounded-card bg-surface-800 px-3 py-1.5 text-caption text-text-300 transition-colors hover:bg-surface-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+              aria-label="Start a new run"
+              title="Start a new run (the current run keeps logging in the background)"
+            >
+              <span aria-hidden>＋</span>
+              <span>New run</span>
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => setHelpOpen(true)}

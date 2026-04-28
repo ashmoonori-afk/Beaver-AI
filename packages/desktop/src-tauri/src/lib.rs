@@ -140,6 +140,11 @@ fn runs_get(args: db::RunsGetArgs) -> Result<Option<db::RunRow>, String> {
 }
 
 #[tauri::command]
+fn runs_list(args: db::RunsListArgs) -> Result<Vec<db::RunRow>, String> {
+    db::runs_list(args).map_err(Into::into)
+}
+
+#[tauri::command]
 fn checkpoints_list(args: db::CheckpointsListArgs) -> Result<Vec<db::CheckpointRow>, String> {
     db::checkpoints_list(args).map_err(Into::into)
 }
@@ -195,6 +200,7 @@ pub fn run() {
             workspace_pick,
             runs_start,
             runs_get,
+            runs_list,
             checkpoints_list,
             checkpoints_answer,
             events_list,
