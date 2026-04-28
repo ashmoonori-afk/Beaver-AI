@@ -43,14 +43,25 @@ impl From<DbError> for String {
     }
 }
 
-fn open_readonly(project_path: Option<&str>) -> Result<Connection, DbError> {
-    let path = workspace::resolve_db_path(project_path.map(Path::new))
-        .map_err(|e| DbError(e.to_string()))?;
+/// Open the workspace SQLite read-only.
+///
+/// zero-friction v0.1: returns `Ok(None)` when `.beaver/beaver.db`
+/// doesn't exist yet (workspace is brand-new, hasn't had a `run` yet).
+/// Callers map the None to an empty result so polling doesn't surface
+/// an error before the user even kicks off a run.
+fn open_readonly(project_path: Option<&str>) -> Result<Option<Connection>, DbError> {
+    let path = match workspace::resolve_db_path(project_path.map(Path::new)) {
+        Ok(p) => p,
+        Err(_) => return Ok(None),
+    };
+    if !path.exists() {
+        return Ok(None);
+    }
     let conn = Connection::open_with_flags(
         &path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
-    Ok(conn)
+    Ok(Some(conn))
 }
 
 fn open_readwrite(project_path: Option<&str>) -> Result<Connection, DbError> {
@@ -96,7 +107,9 @@ pub struct RunsListArgs {
 }
 
 pub fn runs_list(args: RunsListArgs) -> Result<Vec<RunRow>, DbError> {
-    let conn = open_readonly(args.project_path.as_deref())?;
+    let Some(conn) = open_readonly(args.project_path.as_deref())? else {
+        return Ok(Vec::new());
+    };
     let limit = args.limit.unwrap_or(50).min(500);
     let mut stmt = conn.prepare(
         "SELECT id, project_id, goal, status, started_at, ended_at, budget_usd, \
@@ -121,7 +134,9 @@ pub fn runs_list(args: RunsListArgs) -> Result<Vec<RunRow>, DbError> {
 }
 
 pub fn runs_get(args: RunsGetArgs) -> Result<Option<RunRow>, DbError> {
-    let conn = open_readonly(args.project_path.as_deref())?;
+    let Some(conn) = open_readonly(args.project_path.as_deref())? else {
+        return Ok(None);
+    };
     let mut stmt = conn.prepare(
         "SELECT id, project_id, goal, status, started_at, ended_at, budget_usd, \
          COALESCE((SELECT SUM(usd) FROM costs WHERE run_id = ?1), 0) AS spent_usd \
@@ -171,7 +186,9 @@ pub struct CheckpointRow {
 }
 
 pub fn checkpoints_list(args: CheckpointsListArgs) -> Result<Vec<CheckpointRow>, DbError> {
-    let conn = open_readonly(args.project_path.as_deref())?;
+    let Some(conn) = open_readonly(args.project_path.as_deref())? else {
+        return Ok(Vec::new());
+    };
     // The schema's checkpoints table doesn't ship a created_at column
     // in v0.1 — we surface NULL via COALESCE so the renderer can
     // detect "no timestamp" and degrade gracefully. v0.1.x will add
@@ -240,7 +257,9 @@ pub struct EventRow {
 }
 
 pub fn events_list(args: EventsListArgs) -> Result<Vec<EventRow>, DbError> {
-    let conn = open_readonly(args.project_path.as_deref())?;
+    let Some(conn) = open_readonly(args.project_path.as_deref())? else {
+        return Ok(Vec::new());
+    };
     let limit = args.limit.unwrap_or(500).min(2000);
     let since = args.since.unwrap_or(-1);
     let mut stmt = conn.prepare(
@@ -290,12 +309,18 @@ pub fn plans_list(args: PlansListArgs) -> Result<Vec<PlanRow>, DbError> {
     // every per-row content_path against it. A malicious or corrupt
     // ledger row pointing at /etc/passwd will be rejected here rather
     // than read+leaked to the webview.
-    let beaver_dir = workspace::resolve_beaver_dir(args.project_path.as_deref().map(Path::new))
-        .map_err(|e| DbError(e.to_string()))?;
+    // zero-friction v0.1: graceful empty when .beaver/ doesn't exist yet.
+    let beaver_dir =
+        match workspace::resolve_beaver_dir(args.project_path.as_deref().map(Path::new)) {
+            Ok(p) => p,
+            Err(_) => return Ok(Vec::new()),
+        };
     let allowed_root = std::fs::canonicalize(&beaver_dir)
         .map_err(|e| DbError(format!("canonicalize beaver_dir: {e}")))?;
 
-    let conn = open_readonly(args.project_path.as_deref())?;
+    let Some(conn) = open_readonly(args.project_path.as_deref())? else {
+        return Ok(Vec::new());
+    };
     let mut stmt = conn.prepare(
         "SELECT id, run_id, version, content_path FROM plans \
          WHERE run_id = ?1 ORDER BY version DESC",

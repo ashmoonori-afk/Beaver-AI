@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Beaverdam.png" alt="Beaverdam — a beaver building its dam" width="320" />
+</p>
+
 ```
 
  ▄▄▄▄▄

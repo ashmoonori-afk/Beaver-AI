@@ -49,15 +49,13 @@ fn workspace_set(
     args: WorkspaceSetArgs,
 ) -> Result<WorkspaceSetResult, String> {
     let path = PathBuf::from(args.path);
-    // set_workspace canonicalizes internally — defends against `..`
-    // and symlink traversal in renderer-supplied paths.
+    // zero-friction v0.1: accept any directory. The first `runs_start`
+    // triggers the sidecar's `Beaver.run()` which calls `init()` and
+    // creates `.beaver/` + SQLite schema if missing. Pre-empting that
+    // here would require Node-side migrations from Rust, which is the
+    // wrong layer. Path canonicalization still runs to defend against
+    // `..` traversal.
     let canon = workspace::set_workspace(path).map_err(|e| e.to_string())?;
-    if !workspace::is_beaver_project(&canon) {
-        return Err(format!(
-            "{} doesn't look like a Beaver project (missing .beaver/ subdir)",
-            canon.display()
-        ));
-    }
     persist_active_workspace(&app, &canon);
     Ok(WorkspaceSetResult {
         path: canon.display().to_string(),
@@ -90,15 +88,9 @@ async fn workspace_pick(app: tauri::AppHandle) -> Result<WorkspacePickResult, St
     let path = file_path
         .into_path()
         .map_err(|e| format!("invalid folder path: {e}"))?;
-    // set_workspace canonicalizes; reject if the OS-picked path
-    // somehow points outside a Beaver project.
+    // zero-friction v0.1: accept any directory. `.beaver/` is created
+    // lazily by the sidecar's `Beaver.run()` on first goal submission.
     let canon = workspace::set_workspace(path).map_err(|e| e.to_string())?;
-    if !workspace::is_beaver_project(&canon) {
-        return Err(format!(
-            "{} doesn't look like a Beaver project. Run `beaver init` there first.",
-            canon.display()
-        ));
-    }
     persist_active_workspace(&app, &canon);
     Ok(WorkspacePickResult {
         path: Some(canon.display().to_string()),

@@ -89,12 +89,11 @@ export function WorkspaceBanner({ path, loading, error, onPick, variant }: Works
       )}
       aria-label="No project folder selected"
     >
-      <h2 className="text-hero text-text-50">Pick a project folder</h2>
+      <h2 className="text-hero text-text-50">Pick a folder, ship a thing</h2>
       <p className="text-body text-text-300">
-        Beaver writes its plans, runs, and audit trail to{' '}
-        <code className="rounded bg-surface-900 px-1 py-0.5 text-text-50">.beaver/</code> inside
-        your project. Pick the folder where you ran{' '}
-        <code className="rounded bg-surface-900 px-1 py-0.5 text-text-50">beaver init</code>.
+        Pick any folder — empty or full of code, doesn't matter. Beaver creates a{' '}
+        <code className="rounded bg-surface-900 px-1 py-0.5 text-text-50">.beaver/</code> directory
+        there for its plans and audit log on the first run.
       </p>
       <button
         type="button"
