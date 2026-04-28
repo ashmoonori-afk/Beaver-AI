@@ -11,6 +11,7 @@ import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { Bento } from './components/Bento.js';
 import { CheckpointPanel } from './components/CheckpointPanel.js';
+import { ErrorBanner } from './components/ErrorBanner.js';
 import { GoalBox } from './components/GoalBox.js';
 import { HelpDialog } from './components/HelpDialog.js';
 import { LogsPanel } from './components/LogsPanel.js';
@@ -41,6 +42,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { usePlanList, type PlanListTransport } from './hooks/usePlanList.js';
 import { useRunSnapshot, type RunSnapshotTransport } from './hooks/useRunSnapshot.js';
 import { useWorkspace } from './hooks/useWorkspace.js';
+import { classifyError, type ClassifiedError } from './lib/errorMessages.js';
 import { useCurrentPanel, type Panel, PANELS, navigate } from './router.js';
 import { cn } from './lib/utils.js';
 import { isTauri } from './lib/tauriRuntime.js';
@@ -182,6 +184,8 @@ export default function App({
   // the desktop runtime so dev-mode + tests behave the same as before.
   const desktop = isTauri();
   const workspace = useWorkspace();
+  const [bannerError, setBannerError] = useState<ClassifiedError | null>(null);
+  const lastGoalRef = useRef<string | null>(null);
   const resolvedTransport = useMemo(
     () =>
       transport ??
@@ -221,6 +225,8 @@ export default function App({
     (goal: string) => {
       if (startingRef.current) return;
       setActiveGoal(goal);
+      lastGoalRef.current = goal;
+      setBannerError(null);
       // In Tauri the run id comes from the Rust side (so the renderer
       // and the orchestrator agree). In browser mode synthesize a local
       // id so the mock transport has something to key on.
@@ -231,6 +237,7 @@ export default function App({
           .catch((err: unknown) => {
             // eslint-disable-next-line no-console
             console.error('runs_start failed', err);
+            setBannerError(classifyError(err));
           })
           .finally(() => {
             startingRef.current = false;
@@ -241,6 +248,26 @@ export default function App({
       if (onGoal) onGoal(goal);
     },
     [onGoal, desktop],
+  );
+
+  const handleBannerAction = useCallback(
+    (intent: 'pick-workspace' | 'retry' | 'open-docs') => {
+      if (intent === 'pick-workspace') {
+        setBannerError(null);
+        void workspace.pick();
+        return;
+      }
+      if (intent === 'retry') {
+        const last = lastGoalRef.current;
+        setBannerError(null);
+        if (last !== null && last.trim().length > 0) {
+          handleGoal(last);
+        }
+        return;
+      }
+      // 'open-docs' — ErrorBanner handles window.open itself.
+    },
+    [workspace, handleGoal],
   );
 
   // Tauri-only: block goal submission until a workspace is picked, by
@@ -306,6 +333,13 @@ export default function App({
           </button>
         </div>
       </header>
+      {bannerError ? (
+        <ErrorBanner
+          error={bannerError}
+          onAction={handleBannerAction}
+          onDismiss={() => setBannerError(null)}
+        />
+      ) : null}
       <main className="px-6">{panels[panel]}</main>
       {helpOpen ? <HelpDialog onClose={() => setHelpOpen(false)} /> : null}
     </div>

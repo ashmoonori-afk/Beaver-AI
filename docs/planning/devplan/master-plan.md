@@ -50,6 +50,7 @@ Order of execution (top to bottom). Each sprint is its own branch (`dev/<id>-…
 | 20  | W.12.5  | Tauri runs_start spawns the CLI sidecar for real             | shipped     |
 | 21  | W.12.6  | 5 transports real wiring (SQLite-backed Tauri commands)      | shipped     |
 | 22  | W.12.7  | Project folder picker + workspace persistence                | shipped     |
+| 23  | W.12.8  | Error UX (classifier + banner: CLI / network / quota / key)  | shipped     |
 
 ---
 
