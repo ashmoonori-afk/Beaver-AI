@@ -19,6 +19,7 @@ import { PhaseTimeline } from './components/PhaseTimeline.js';
 import { PlanPanel } from './components/PlanPanel.js';
 import { ReviewPanel } from './components/ReviewPanel.js';
 import { RunsList } from './components/RunsList.js';
+import { SidecarDiagnostic } from './components/SidecarDiagnostic.js';
 import { WikiSearch } from './components/WikiSearch.js';
 import { WorkspaceBanner } from './components/WorkspaceBanner.js';
 import { makeMockAskWikiTransport } from './hooks/mockAskWikiTransport.js';
@@ -44,6 +45,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { usePlanList, type PlanListTransport } from './hooks/usePlanList.js';
 import { useRunSnapshot, type RunSnapshotTransport } from './hooks/useRunSnapshot.js';
 import { useRunsList } from './hooks/useRunsList.js';
+import { useSidecarDiagnostic } from './hooks/useSidecarDiagnostic.js';
 import { useWorkspace } from './hooks/useWorkspace.js';
 import { classifyError, type ClassifiedError } from './lib/errorMessages.js';
 import { useCurrentPanel, type Panel, PANELS, navigate } from './router.js';
@@ -119,6 +121,9 @@ function StatusPanel({
   // into the PhaseTimeline so the user sees what's happening now
   // without leaving the Status panel.
   const events = useEvents(activeRunId, eventsTransport);
+  // Watchdog: if the sidecar dies before inserting the runs row, this
+  // pulls the stderr tail so the user sees Node's actual error.
+  const diagnostic = useSidecarDiagnostic(activeRunId, snapshot);
   const isTerminal =
     snapshot?.state === 'COMPLETED' ||
     snapshot?.state === 'FAILED' ||
@@ -127,8 +132,18 @@ function StatusPanel({
   if (!activeRunId || !snapshot) {
     return (
       <section className="grid gap-6 py-6 lg:grid-cols-[1fr,18rem]">
-        <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center">
-          {workspaceCard ?? <GoalBox onSubmit={onSubmit} />}
+        <div className="flex min-h-[calc(100vh-8rem)] flex-col items-center justify-center gap-6">
+          {activeRunId && diagnostic.showing ? (
+            <div className="w-full max-w-2xl">
+              <SidecarDiagnostic stderrTail={diagnostic.stderrTail} />
+            </div>
+          ) : activeRunId ? (
+            <p className="text-body text-text-400" aria-live="polite">
+              Starting run… (this should take a couple seconds)
+            </p>
+          ) : (
+            (workspaceCard ?? <GoalBox onSubmit={onSubmit} />)
+          )}
         </div>
         {runsSidebar ? (
           <aside className="lg:sticky lg:top-6 lg:self-start">

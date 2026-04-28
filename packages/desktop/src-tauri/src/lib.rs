@@ -124,6 +124,22 @@ fn runs_start(
     Ok(sidecar::RunsStartResult { run_id })
 }
 
+#[derive(Deserialize)]
+struct SidecarLogArgs {
+    #[serde(default)]
+    tail_bytes: Option<usize>,
+}
+
+/// Read the tail of the active workspace's sidecar-stderr.log so the
+/// renderer can show "your sidecar died silently — here's why" when a
+/// run never produces a `runs` row.
+#[tauri::command]
+fn sidecar_log(args: SidecarLogArgs) -> Result<String, String> {
+    let workdir = workspace::resolve_workspace(None).map_err(|e| e.to_string())?;
+    let cap = args.tail_bytes.unwrap_or(8192).min(64 * 1024);
+    sidecar::read_sidecar_log(&workdir, cap)
+}
+
 // --- W.12.6 SQLite-backed read commands -------------------------------
 
 #[tauri::command]
@@ -197,6 +213,7 @@ pub fn run() {
             checkpoints_answer,
             events_list,
             plans_list,
+            sidecar_log,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

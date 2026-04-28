@@ -21,13 +21,24 @@
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use crate::workspace::ResolveError;
+
+/// Windows CreateProcess flag: don't allocate a console for the child.
+/// Without this, spawning `node.exe` from a GUI Tauri app pops a black
+/// cmd window every time the user submits a goal — the child inherits
+/// no console handle from the GUI parent so Windows creates a new one.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Deserialize)]
 pub struct RunsStartArgs {
@@ -177,6 +188,21 @@ pub fn spawn_run(app: &AppHandle, workdir: &Path, goal: &str) -> Result<String, 
     let (cmd, args) = resolve_sidecar_command(app)?;
     let run_id = make_run_id();
 
+    // Capture stdout + stderr to files inside `<workdir>/.beaver/` so the
+    // user (and we) can diagnose silent failures. `Beaver.run()` will
+    // create `.beaver/` itself when it bootstraps the SQLite schema, but
+    // we need the directory NOW for the log file destinations — `mkdir
+    // -p` here is idempotent.
+    let beaver_dir = workdir.join(".beaver");
+    fs::create_dir_all(&beaver_dir)
+        .map_err(|e| format!("failed to create {}: {e}", beaver_dir.display()))?;
+    let stdout_log = beaver_dir.join("sidecar-stdout.log");
+    let stderr_log = beaver_dir.join("sidecar-stderr.log");
+    let stdout_file = fs::File::create(&stdout_log)
+        .map_err(|e| format!("failed to create {}: {e}", stdout_log.display()))?;
+    let stderr_file = fs::File::create(&stderr_log)
+        .map_err(|e| format!("failed to create {}: {e}", stderr_log.display()))?;
+
     // The CLI uses cwd to find .beaver/. workdir = the user's project.
     let mut command = Command::new(&cmd);
     command
@@ -185,21 +211,36 @@ pub fn spawn_run(app: &AppHandle, workdir: &Path, goal: &str) -> Result<String, 
         .arg("--no-server")
         .arg(goal)
         .current_dir(workdir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(Stdio::from(stdout_file))
+        .stderr(Stdio::from(stderr_file))
         // BEAVER_REFINER + _PLANNER drive the W.12.4 auto-injection.
         // Setting both here means desktop spawns always use real LLMs.
         .env("BEAVER_REFINER", "llm")
         .env("BEAVER_PLANNER", "llm");
 
-    let child = command
-        .spawn()
-        .map_err(|e| format!("failed to spawn sidecar {}: {}", cmd.display(), e))?;
+    // On Windows: hide the cmd window that would otherwise flash for
+    // every spawned `node.exe`. The Tauri GUI parent has no console,
+    // so without this Windows creates a fresh console for the child.
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let child = command.spawn().map_err(|e| {
+        format!(
+            "failed to spawn sidecar {}: {}. See {} for details.",
+            cmd.display(),
+            e,
+            stderr_log.display()
+        )
+    })?;
     let mut guard = ACTIVE_RUNS
         .lock()
         .map_err(|e| format!("registry lock poisoned: {e}"))?;
     reap_finished_runs(&mut guard);
     guard.insert(run_id.clone(), child);
+    log::info!(
+        "sidecar spawned (run_id={run_id}, log={})",
+        stderr_log.display()
+    );
     Ok(run_id)
 }
 
@@ -216,6 +257,17 @@ pub fn abort_run(run_id: &str) -> Result<(), String> {
         let _ = child.wait();
     }
     Ok(())
+}
+
+/// Read the most recent sidecar-stderr.log from the active workspace,
+/// truncated to the last `tail_bytes` so a runaway log doesn't blow up
+/// the IPC payload. Used by the renderer to surface "your sidecar died
+/// silently — here's what it said" diagnostics.
+pub fn read_sidecar_log(workdir: &Path, tail_bytes: usize) -> Result<String, String> {
+    let path = workdir.join(".beaver").join("sidecar-stderr.log");
+    let bytes = fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let start = bytes.len().saturating_sub(tail_bytes);
+    Ok(String::from_utf8_lossy(&bytes[start..]).into_owned())
 }
 
 /// Drain ACTIVE_RUNS, killing every remaining child and waiting on
