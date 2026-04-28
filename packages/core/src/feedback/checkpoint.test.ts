@@ -54,6 +54,21 @@ describe('checkpoint primitive', () => {
     expect(pendingFor(db, 'r1')).toEqual([]);
   });
 
+  it('goal-refinement (Phase 7) accepts approve / reject / comment:<text>', () => {
+    const a = post(db, { kind: 'goal-refinement', runId: 'r1', prompt: 'enriched goal ok?' });
+    answer(db, a.id, 'approve');
+    const b = post(db, { kind: 'goal-refinement', runId: 'r1', prompt: 'try again?' });
+    answer(db, b.id, 'reject');
+    const c = post(db, { kind: 'goal-refinement', runId: 'r1', prompt: 'final?' });
+    answer(db, c.id, 'comment:add tests');
+    expect(pendingFor(db, 'r1')).toEqual([]);
+  });
+
+  it('goal-refinement rejects free-form responses', () => {
+    const { id } = post(db, { kind: 'goal-refinement', runId: 'r1', prompt: 'q' });
+    expect(() => answer(db, id, 'looks good')).toThrow();
+  });
+
   it('waitForAnswer resolves within 500 ms of an answer write', async () => {
     const { id } = post(db, { kind: 'plan-approval', runId: 'r1', prompt: 'q' });
     const t0 = Date.now();

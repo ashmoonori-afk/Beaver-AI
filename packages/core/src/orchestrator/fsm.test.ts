@@ -23,7 +23,15 @@ describe('TERMINAL_STATES', () => {
 });
 
 describe('transition — happy paths', () => {
-  it('INITIALIZED + PLAN_DRAFTED -> PLANNING', () => {
+  it('INITIALIZED + GOAL_REFINEMENT_STARTED -> REFINING_GOAL (Phase 7)', () => {
+    expect(transition('INITIALIZED', { type: 'GOAL_REFINEMENT_STARTED' })).toBe('REFINING_GOAL');
+  });
+
+  it('REFINING_GOAL + GOAL_REFINED -> PLANNING (Phase 7)', () => {
+    expect(transition('REFINING_GOAL', { type: 'GOAL_REFINED' })).toBe('PLANNING');
+  });
+
+  it('INITIALIZED + PLAN_DRAFTED -> PLANNING (skip-refinement / backward compat)', () => {
     expect(transition('INITIALIZED', { type: 'PLAN_DRAFTED' })).toBe('PLANNING');
   });
 
@@ -61,6 +69,7 @@ describe('transition — happy paths', () => {
 describe('transition — universal escape hatches', () => {
   const nonTerminal: RunState[] = [
     'INITIALIZED',
+    'REFINING_GOAL',
     'PLANNING',
     'EXECUTING',
     'REVIEWING',

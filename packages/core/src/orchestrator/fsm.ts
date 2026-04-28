@@ -16,6 +16,7 @@
 
 export const RUN_STATES = [
   'INITIALIZED',
+  'REFINING_GOAL',
   'PLANNING',
   'EXECUTING',
   'REVIEWING',
@@ -34,6 +35,8 @@ export const TERMINAL_STATES: ReadonlySet<RunState> = new Set<RunState>([
 ]);
 
 export type RunEvent =
+  | { type: 'GOAL_REFINEMENT_STARTED' }
+  | { type: 'GOAL_REFINED' }
   | { type: 'PLAN_DRAFTED' }
   | { type: 'PLAN_APPROVED' }
   | { type: 'TASK_DISPATCHED' }
@@ -75,7 +78,18 @@ export function transition(state: RunState, event: RunEvent): RunState {
 
   switch (state) {
     case 'INITIALIZED':
+      // Phase 7: explicit refinement pass.
+      if (event.type === 'GOAL_REFINEMENT_STARTED') return 'REFINING_GOAL';
+      // Backward compat: skipping refinement still works (used by tests
+      // that pre-build a Plan and dispatch directly).
       if (event.type === 'PLAN_DRAFTED') return 'PLANNING';
+      break;
+    case 'REFINING_GOAL':
+      // Refiner can re-enter itself when a clarifying question round
+      // produces another revision (no event needed; the orchestrator
+      // simply doesn't transition out yet). GOAL_REFINED commits the
+      // enriched goal and the planner has drafted a plan from it.
+      if (event.type === 'GOAL_REFINED') return 'PLANNING';
       break;
     case 'PLANNING':
       if (event.type === 'PLAN_APPROVED') return 'EXECUTING';

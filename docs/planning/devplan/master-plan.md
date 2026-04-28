@@ -29,7 +29,7 @@ Order of execution (top to bottom). Each sprint is its own branch (`dev/<id>-…
 | #   | Sprint  | Scope                                                  | Status      |
 | --- | ------- | ------------------------------------------------------ | ----------- |
 | 1   | W.9     | UI bug fix — ElapsedClock label + mock timing          | shipped     |
-| 2   | 7.1     | Orchestrator FSM gains REFINING_GOAL state             | queued      |
+| 2   | 7.1     | Orchestrator FSM gains REFINING_GOAL state             | shipped     |
 | 3   | 7.2     | Refined-goal UI surface (new checkpoint kind)          | queued      |
 | 4   | 7.3     | Pre-coder handoff validation                           | queued      |
 | 5   | 8.1     | UsageSchema gains input/output/cached token fields     | queued      |

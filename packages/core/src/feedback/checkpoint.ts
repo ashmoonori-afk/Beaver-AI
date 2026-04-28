@@ -21,6 +21,7 @@ import type { Db } from '../workspace/db.js';
 
 export const CHECKPOINT_KINDS = [
   'goal-clarification',
+  'goal-refinement',
   'plan-approval',
   'risky-change-confirmation',
   'merge-conflict',
@@ -48,6 +49,9 @@ const FreeFormResponse = z.string().min(1, 'response must be non-empty');
 
 const RESPONSE_SCHEMAS: Record<CheckpointKind, z.ZodType<string>> = {
   'goal-clarification': FreeFormResponse,
+  // Phase 7: refinement-pass checkpoint. User approves the enriched
+  // goal, rejects to restart, or comments to thread an amendment.
+  'goal-refinement': ApproveRejectComment,
   'plan-approval': ApproveRejectComment,
   'risky-change-confirmation': ApproveRejectComment,
   'merge-conflict': FreeFormResponse,
