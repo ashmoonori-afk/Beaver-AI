@@ -1,71 +1,69 @@
 // Beaver desktop shell — Tauri v2 entry point.
 //
-// 4D.1 shipped the window + the `desktop_info` smoke test.
-// 4D.2 adds `runs_start` — spawns the Node CLI sidecar with the user's
-// goal and assigns a run id back to the renderer. NDJSON forwarding
-// to `run.snapshot.<runId>` events is wired in 4D.2.x once the CLI's
-// `--json` output mode is stable.
+// Module map:
+//   - workspace.rs  — active project folder + .beaver/beaver.db resolution
+//   - sidecar.rs    — spawn `beaver run` as a child process (W.12.5)
+//   - lib.rs        — Tauri commands + handler registration
+//
+// W.12.5 wires `runs_start` to actually spawn the sidecar (was a stub
+// in 4D.1). W.12.6 adds SQLite-reading commands so the 5 stub
+// transports become real.
+
+mod sidecar;
+mod workspace;
 
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Serialize)]
 struct DesktopInfo {
     version: &'static str,
     target_os: &'static str,
     debug: bool,
+    workspace: Option<String>,
 }
 
-/// Smoke-test command — proves the renderer can `invoke('desktop_info')`
-/// and that the Tauri context is healthy.
 #[tauri::command]
 fn desktop_info() -> DesktopInfo {
     DesktopInfo {
         version: env!("CARGO_PKG_VERSION"),
         target_os: std::env::consts::OS,
         debug: cfg!(debug_assertions),
+        workspace: workspace::get_workspace().map(|p| p.display().to_string()),
     }
 }
 
 #[derive(Deserialize)]
-struct RunsStartArgs {
-    goal: String,
+struct WorkspaceSetArgs {
+    path: String,
 }
 
 #[derive(Serialize)]
-struct RunsStartResult {
-    run_id: String,
+struct WorkspaceSetResult {
+    path: String,
 }
 
-/// Hard cap on goal-string length. 4 KB is generous for a free-text
-/// project goal but bounds the IPC argument before the 4D.2.x sidecar
-/// path turns it into a positional argv element.
-const MAX_GOAL_LEN: usize = 4096;
-
-/// Phase 4D.2 entry — validates the goal and assigns a run id. The
-/// 4D.2.x follow-up will spawn `node packages/cli/src/bin.ts run`
-/// as a sidecar with the goal as a positional argument; locking the
-/// length + non-empty invariants here keeps that path safe even when
-/// the sidecar shell-out lands.
 #[tauri::command]
-fn runs_start(args: RunsStartArgs) -> Result<RunsStartResult, String> {
-    let trimmed = args.goal.trim();
-    if trimmed.is_empty() {
-        return Err("goal: empty after trim".into());
-    }
-    if trimmed.len() > MAX_GOAL_LEN {
-        return Err(format!(
-            "goal: {} chars exceeds {}-char cap",
-            trimmed.len(),
-            MAX_GOAL_LEN
-        ));
-    }
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    Ok(RunsStartResult {
-        run_id: format!("r-{stamp}"),
+fn workspace_set(args: WorkspaceSetArgs) -> Result<WorkspaceSetResult, String> {
+    let path = PathBuf::from(args.path);
+    workspace::set_workspace(path.clone()).map_err(|e| e.to_string())?;
+    Ok(WorkspaceSetResult {
+        path: path.display().to_string(),
     })
+}
+
+#[tauri::command]
+fn workspace_get() -> Option<String> {
+    workspace::get_workspace().map(|p| p.display().to_string())
+}
+
+#[tauri::command]
+fn runs_start(args: sidecar::RunsStartArgs) -> Result<sidecar::RunsStartResult, String> {
+    let workdir =
+        workspace::resolve_workspace(args.project_path.as_deref().map(std::path::Path::new))
+            .map_err(|e| e.to_string())?;
+    let run_id = sidecar::spawn_run(&workdir, &args.goal)?;
+    Ok(sidecar::RunsStartResult { run_id })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -81,7 +79,12 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![desktop_info, runs_start])
+        .invoke_handler(tauri::generate_handler![
+            desktop_info,
+            workspace_set,
+            workspace_get,
+            runs_start,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
