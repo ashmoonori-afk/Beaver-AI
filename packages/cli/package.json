@@ -9,9 +9,15 @@
   "bin": {
     "beaver": "src/bin.ts"
   },
+  "scripts": {
+    "build": "esbuild src/bin.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/bin.mjs --packages=bundle --banner:js=\"import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);\""
+  },
   "dependencies": {
     "@beaver-ai/core": "workspace:*",
     "beaver-ai": "workspace:*",
     "commander": "^14.0.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.10"
   }
 }

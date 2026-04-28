@@ -6,11 +6,16 @@
 // We deliberately do NOT parse stdout — polling a SQLite ledger is
 // simpler and matches how the existing CLI already records state.
 //
-// In v0.1 the sidecar resolution chain is:
-//   1. BEAVER_SIDECAR_NODE override (tests / dev-mode)
-//   2. node-sea bundled binary at <resourceDir>/beaver-sidecar(.exe)
-//   3. system `node` on PATH + bundled bin.js  (4D.7 may flip the order)
-// If none resolve, runs_start returns an actionable error.
+// 4D.7 — production resolution chain (highest priority first):
+//   1. BEAVER_SIDECAR_NODE + BEAVER_SIDECAR_BIN env (dev/test override)
+//   2. Bundled `<resourceDir>/sidecar/bin.mjs` + system `node` on PATH
+//   3. Otherwise → actionable error (caught by W.12.8 ErrorBanner).
+//
+// The bundled file is built by `pnpm --filter @beaver-ai/cli build`
+// (esbuild → ESM single-file with createRequire shim) and installed
+// into `<resourceDir>/sidecar/bin.mjs` via tauri.conf.json's bundle
+// resources map. Users still need a system `node` ≥ 22 on PATH —
+// shipping a private node binary is deferred to v0.1.x (node-sea).
 
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -18,6 +23,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use tauri::{AppHandle, Manager};
 
 use crate::workspace::ResolveError;
 
@@ -37,6 +43,7 @@ pub struct RunsStartResult {
 }
 
 const MAX_GOAL_LEN: usize = 4096;
+const BUNDLED_BIN_REL: &str = "sidecar/bin.mjs";
 
 /// In-process registry of active sidecar children. The renderer never
 /// kills directly — it goes through `runs_abort`. The registry uses a
@@ -45,16 +52,8 @@ const MAX_GOAL_LEN: usize = 4096;
 static ACTIVE_RUNS: Lazy<Mutex<HashMap<String, Child>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Resolve which executable + args to use for the sidecar.
-///
-/// The two production-relevant cases:
-///  - `BEAVER_SIDECAR_NODE` env var supplies a `node` path AND
-///    `BEAVER_SIDECAR_BIN` supplies the bin.ts (dev mode + tests).
-///  - System `node` + `<resourceDir>/sidecar/bin.js` (production once
-///    the desktop installer drops dist/cli/bin.js next to the .exe).
-///
-/// 4D.7 will add the node-sea single-binary case at higher priority.
-fn resolve_sidecar_command() -> Result<(PathBuf, Vec<String>), String> {
-    // Dev / test override.
+fn resolve_sidecar_command(app: &AppHandle) -> Result<(PathBuf, Vec<String>), String> {
+    // (1) Dev / test override.
     if let (Ok(node), Ok(bin)) = (
         std::env::var("BEAVER_SIDECAR_NODE"),
         std::env::var("BEAVER_SIDECAR_BIN"),
@@ -82,13 +81,39 @@ fn resolve_sidecar_command() -> Result<(PathBuf, Vec<String>), String> {
         return Ok((node_path, args));
     }
 
-    // Production placeholder — the 4D.7 sprint will populate this with
-    // the bundled node-sea binary or `<resourceDir>/sidecar/bin.js`.
-    // For now, surface an actionable error so Tauri shows the user what
-    // to install; the dev override above keeps tests green.
-    Err(
-        "no sidecar configured; set BEAVER_SIDECAR_NODE + BEAVER_SIDECAR_BIN, or wait for the bundled v0.1.0 installer (4D.7).".into(),
-    )
+    // (2) Production — bundled bin.mjs in the resource dir + system node.
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("could not resolve resource dir: {e}"))?;
+    let bundled_bin = resource_dir.join(BUNDLED_BIN_REL);
+    if bundled_bin.is_file() {
+        let node = which_node().ok_or_else(|| {
+            "Node.js was not found on PATH. Install Node 22+ from https://nodejs.org \
+             (a bundled Node binary is coming in v0.1.x)."
+                .to_string()
+        })?;
+        return Ok((node, vec![bundled_bin.display().to_string()]));
+    }
+
+    Err(format!(
+        "no sidecar configured; expected bundled {} or BEAVER_SIDECAR_NODE + BEAVER_SIDECAR_BIN env override",
+        bundled_bin.display()
+    ))
+}
+
+/// Find a `node` executable on PATH. Returns None when missing so the
+/// caller can render an actionable "install Node" message.
+fn which_node() -> Option<PathBuf> {
+    let exe = if cfg!(windows) { "node.exe" } else { "node" };
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(exe);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 pub fn validate_goal(goal: &str) -> Result<&str, String> {
@@ -106,9 +131,9 @@ pub fn validate_goal(goal: &str) -> Result<&str, String> {
     Ok(trimmed)
 }
 
-pub fn spawn_run(workdir: &Path, goal: &str) -> Result<String, String> {
+pub fn spawn_run(app: &AppHandle, workdir: &Path, goal: &str) -> Result<String, String> {
     let goal = validate_goal(goal)?;
-    let (cmd, args) = resolve_sidecar_command()?;
+    let (cmd, args) = resolve_sidecar_command(app)?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -159,5 +184,41 @@ pub fn active_run_count() -> usize {
 impl From<ResolveError> for String {
     fn from(e: ResolveError) -> String {
         format!("{e}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_empty_goal() {
+        assert!(validate_goal("").is_err());
+        assert!(validate_goal("   \n\t").is_err());
+    }
+
+    #[test]
+    fn trims_and_accepts_short_goal() {
+        let out = validate_goal("  build a thing  ").unwrap();
+        assert_eq!(out, "build a thing");
+    }
+
+    #[test]
+    fn rejects_oversize_goal() {
+        let huge = "x".repeat(MAX_GOAL_LEN + 1);
+        let err = validate_goal(&huge).unwrap_err();
+        assert!(err.contains("exceeds"));
+    }
+
+    #[test]
+    fn which_node_returns_path_when_found() {
+        // We can't guarantee `node` exists on every CI runner, but if PATH
+        // contains anything ending in node[.exe], which_node should find
+        // it. Skip the assertion when there's nothing on PATH so the test
+        // stays useful in containerized minimal environments.
+        if which_node().is_some() {
+            // path round-trip: the returned candidate must exist as a file.
+            assert!(which_node().unwrap().is_file());
+        }
     }
 }

@@ -117,11 +117,14 @@ fn persist_active_workspace(app: &tauri::AppHandle, path: &std::path::Path) {
 }
 
 #[tauri::command]
-fn runs_start(args: sidecar::RunsStartArgs) -> Result<sidecar::RunsStartResult, String> {
+fn runs_start(
+    app: tauri::AppHandle,
+    args: sidecar::RunsStartArgs,
+) -> Result<sidecar::RunsStartResult, String> {
     let workdir =
         workspace::resolve_workspace(args.project_path.as_deref().map(std::path::Path::new))
             .map_err(|e| e.to_string())?;
-    let run_id = sidecar::spawn_run(&workdir, &args.goal)?;
+    let run_id = sidecar::spawn_run(&app, &workdir, &args.goal)?;
     Ok(sidecar::RunsStartResult { run_id })
 }
 

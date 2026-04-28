@@ -69,6 +69,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # 4D.7 — bundle the CLI into a single ESM file the Tauri shell
+      # ships next to the desktop binary (resourceDir/sidecar/bin.mjs).
+      # Tauri's beforeBuildCommand also runs this, but doing it here
+      # gives a clear failure surface if esbuild breaks.
+      - run: pnpm --filter @beaver-ai/cli build
+
       - name: Tauri build (windows / linux)
         if: matrix.target != 'macos'
         env:
