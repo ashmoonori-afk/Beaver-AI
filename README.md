@@ -14,336 +14,103 @@
 
 # Beaver AI
 
-> Fully autonomous local development orchestrator. Drives **Claude Code + Codex** agents through `plan → execute → review → integrate` loops with strong policy guardrails (sandbox, USD budget, hooks). Pauses only at well-defined human checkpoints.
+> **Type a goal. Walk away. Come back to working code.**
 
-[![ci](https://github.com/ashmoonori-afk/Beaver-AI-Dev/actions/workflows/ci.yml/badge.svg)](https://github.com/ashmoonori-afk/Beaver-AI-Dev/actions/workflows/ci.yml) · 581 tests · 231 source files · MIT
+Beaver is a local desktop app that runs your AI coder on autopilot. You hand it a goal — _"add a login flow"_, _"port this Express server to Fastify"_, _"fix the failing test in cart.test.ts"_ — and it plans, codes, reviews, and pauses for your approval at the end.
 
----
-
-## Why Beaver?
-
-Most "AI agents" are fragile chat wrappers. Beaver is a deterministic **state machine** that spawns specialized LLM agents (planner / coder / reviewer / summarizer) inside isolated git worktrees, gates every shell call through a sandbox classifier, and writes every transition to a WAL-mode SQLite ledger so runs survive crashes.
-
-**Bias:** strong, lightweight guardrails. Hallucination-resistant by construction — agents can only see their own worktree, can only spend a fixed USD cap, and can only run shell commands that pass the policy classifier.
-
-## Purpose (Definition of Done — v0.1)
-
-A user types one goal:
-
-```
-node --import=tsx packages/cli/src/bin.ts run --no-server "Build a TypeScript TODO app with auth"
-```
-
-…or **double-clicks the desktop launcher**, and Beaver:
-
-1. Plans the work as a versioned DAG of tasks
-2. Spawns specialized agents (each in its own git worktree, on its own branch)
-3. Drives them through coding / patching / review loops automatically
-4. Surfaces progress at well-defined checkpoints (plan approval, budget exceeded, merge conflict, final review)
-5. Reports completion with a `final-report.md` and the merged repository
-
-The 5 v0.1 exit criteria — all satisfiable on a fresh checkout:
-
-- ✅ `beaver init && beaver run "<goal>"` succeeds end-to-end
-- ✅ The run produces a valid plan (passes `PlanSchema.safeParse`) and ≥1 committed branch
-- ✅ Aborting + `beaver resume <run-id>` recovers the run from disk
-- ✅ A run that exceeds the per-run USD cap **pauses** with a `budget-exceeded` checkpoint (never silently overspends)
-- ✅ Every state transition is visible as a row in the `events` table
+No babysitting prompts every 30 seconds. No cloud account. No SaaS dashboard. Just an installer, your existing AI coder CLI (Claude Code or Codex), and a folder.
 
 ---
 
-## Architecture (seven layers)
+## Why use Beaver instead of Cursor / Claude directly?
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  Entry Layer            beaver CLI    │   Desktop (Tauri)*   │
-│                         /beaver slash command (plugin)       │
-├──────────────────────────────────────────────────────────────┤
-│  Renderer (React)       Bento status · Checkpoints · Plan    │
-│                         Logs · Final review · Wiki · Help    │
-├──────────────────────────────────────────────────────────────┤
-│  Orchestrator           PLANNING → EXECUTING → REVIEWING     │
-│  (the "meta-agent")     → FINAL_REVIEW_PENDING → COMPLETED   │
-│                         FSM-driven, LLM sub-decisions        │
-├──────────────────────────────────────────────────────────────┤
-│  Agent Runtime          Lifecycle · Worktree binding         │
-│                         Stall watchdog · Cost/budget guard   │
-├──────────────────────────────────────────────────────────────┤
-│  Provider Adapters      ClaudeCodeAdapter │ CodexAdapter     │
-│                         Auto-fallback on usage-limit         │
-├──────────────────────────────────────────────────────────────┤
-│  Workspace & State      Git worktrees · SQLite (WAL)         │
-│                         10 tables · 9 typed DAOs             │
-├──────────────────────────────────────────────────────────────┤
-│  Feedback Channel       Terminal prompts · Desktop UI        │
-│                         Notifications · Wiki hints           │
-└──────────────────────────────────────────────────────────────┘
-                                              * Tauri shell: 4D.1 in progress
-```
+If you've used those, you know the loop: prompt, edit, prompt, edit. For small changes it's fine. For _"build me X"_ it's exhausting — every step is a new prompt and you're the one stitching results together.
 
-Full layer docs: [`docs/architecture/overview.md`](./docs/architecture/overview.md).
+Beaver is for _"build me X."_ You give it the goal once. It:
 
-### Locked decisions (D1–D17)
+1. Turns your one-liner into a **structured PRD** (goals, scope, acceptance criteria) so the plan is concrete.
+2. **Drafts a plan** with agent tasks and a USD budget cap.
+3. **Codes** in an isolated git worktree using your coder CLI.
+4. **Reviews** the diff.
+5. **Pauses for your approval** before merging anything.
 
-See [`docs/decisions/locked.md`](./docs/decisions/locked.md). Highlights:
-
-- **D1** TypeScript on Node ≥ 22.6 LTS (built-in `node:sqlite` + `--experimental-strip-types`)
-- **D4** Workspace = git worktrees + SQLite. `events` is the system of record; everything else is a materialized view
-- **D6** Deterministic top-level FSM + LLM sub-decisions inside each state
-- **D9** Sandbox: hard-deny / require-confirmation / allow + worktree write boundary
-- **D10** Bounded parallel (5) · max 2 retries · CLI-only providers · 120 s stall watchdog
-- **D14** Wiki system: LLM-maintained markdown KB at `<config>/wiki/`, suggest-only
-- **D15** Agent baseline: bundled `AGENT_BASELINE.md` injected as the first layer of every agent's system prompt
-- **D16** App UI tech stack: React + Vite + Tailwind, hash-routed SPA
-- **D17** Desktop shell: **Tauri v2** wrapping the React UI from Phase 4U, with a bundled Node sidecar. Self-signed cert, GitHub Releases, `node-sea` sidecar (Phase 4D.0 lock)
+Every step is logged to a SQLite ledger inside `<your project>/.beaver/`, so you can audit, resume, or replay any run.
 
 ---
 
-## Installation
+## Try it in 2 minutes
 
-Prerequisites:
+### 1. Download the installer
 
-- **Node ≥ 22.6** ([nodejs.org](https://nodejs.org/))
-- **pnpm ≥ 10** ([pnpm.io](https://pnpm.io/))
-- **git**
-- **Claude Code CLI** (`npm i -g @anthropic-ai/claude-code`)
-- **Codex CLI** (`npm i -g @openai/codex`)
-- **Rust + Cargo** (only for desktop builds — [rustup.rs](https://rustup.rs/))
+Get the matching file from [**Releases**](https://github.com/ashmoonori-afk/Beaver-AI/releases/latest):
 
-```bash
-git clone https://github.com/ashmoonori-afk/Beaver-AI-Dev.git
-cd Beaver-AI-Dev
-pnpm install
-```
+| OS          | File                                                            |
+| ----------- | --------------------------------------------------------------- |
+| **Windows** | `Beaver_0.1.0_x64-setup.exe` (recommended) or `…_x64_en-US.msi` |
+| **macOS**   | `Beaver_0.1.0_x64.dmg`                                          |
+| **Linux**   | `beaver-ai_0.1.0_amd64.deb` or `beaver-ai_0.1.0_amd64.AppImage` |
 
----
+### 2. Make sure your AI coder is set up
 
-## Execution
+Beaver delegates the actual file-editing to a CLI you already use. Pick **one**:
 
-Four equivalent ways to run a goal — pick whichever fits your workflow.
+- [**Claude Code CLI**](https://claude.com/code) — `pnpm add -g @anthropic-ai/claude-code` then `claude /login`
+- [**OpenAI Codex CLI**](https://github.com/openai/codex) — `pnpm add -g @openai/codex` then `codex login`
+- **Direct API** — `export ANTHROPIC_API_KEY=sk-ant-...` in your shell
 
-### 1. Desktop app (Phase 4D — replaces the .bat launcher)
+You also need [**Node.js 22+**](https://nodejs.org) on `PATH`. (Bundling Node into the installer is on the roadmap.)
 
-The Tauri-based desktop shell wraps the redesigned bento UI in a native Win64 / macOS / Linux executable. Double-click to launch — no terminal, no browser tab.
+### 3. Launch Beaver and ship something
 
-```bash
-# Dev mode (auto-reloads on file change):
-pnpm --filter @beaver-ai/desktop tauri dev
+1. Open Beaver.
+2. Click **Pick folder…** — choose anything. Empty folder, existing project, doesn't matter. Beaver creates a `.beaver/` subfolder there for its state.
+3. Type a goal in the box. Try something concrete like _"Add an Express server with /health and /version endpoints"_ — submit.
+4. Watch the **Phase Timeline** on the Status panel. It shows what Beaver is doing right now: refining → planning → coding → reviewing.
+5. When it pauses at the final-review checkpoint, look at the diff and **Approve** (or **Reject** to discard).
 
-# Production build (Win64 .msi + .exe / macOS .dmg / Linux .AppImage):
-pnpm --filter @beaver-ai/desktop tauri build
-```
-
-The 4D.1 sprint scaffolds the shell + Windows installer. The 4D.2 sprint replaces the in-process mock transports with real Tauri `invoke` commands (CLI sidecar). Until 4D.2 lands the desktop UI runs against the demo fixtures.
-
-### 2. Double-click launcher (legacy, terminal)
-
-The Phase 0 launcher scripts are kept while 4D rolls out — they prompt for a goal in a terminal and shell out to the CLI. Once the Tauri build is signed and shipped, these will be replaced.
-
-| Platform | File                                         |
-| -------- | -------------------------------------------- |
-| Windows  | `Start-Beaver.bat`                           |
-| macOS    | `Start-Beaver.command` (chmod +x first time) |
-| Linux    | `Start-Beaver.sh` (chmod +x first time)      |
-
-### 3. Claude Code plugin
-
-```
-.claude-plugin/
-├── plugin.json
-├── skills/
-│   ├── beaver-runner.md       # auto-discovered when user asks Claude to "run beaver"
-│   └── beaver-wiki-ask.md     # natural-language wiki Q&A
-└── commands/
-    └── beaver.md              # /beaver <goal> slash command
-```
-
-Drop the `.claude-plugin/` directory into Claude Code's plugin path. Then in any Claude Code session:
-
-```
-/beaver Build a TypeScript TODO app with auth
-```
-
-Or just ask Claude in plain English ("can you run beaver on this?") and the `beaver-runner` skill auto-activates.
-
-### 4. CLI (terminal)
-
-```bash
-node --import=tsx packages/cli/src/bin.ts <subcommand>
-```
-
-| Subcommand                                    | Purpose                                                               |
-| --------------------------------------------- | --------------------------------------------------------------------- |
-| `init`                                        | Set up `.beaver/` (refuses non-git directories; pings claude + codex) |
-| `run --no-server "<goal>"`                    | Start a new run (one active run per project)                          |
-| `status`                                      | Current state + plan version + spent USD + open checkpoints           |
-| `logs --follow`                               | Tail the events table                                                 |
-| `checkpoints`                                 | List pending checkpoints                                              |
-| `answer <id> approve\|reject\|comment <text>` | Reply to a checkpoint                                                 |
-| `resume <run-id>`                             | Recover a paused / crashed run from disk                              |
-| `abort <run-id>`                              | Stop a run                                                            |
+That's it. The folder now has working code, and `.beaver/` has the full audit trail.
 
 ---
 
-## UI surface (Phase 4U — shipped)
+## What it can't do yet (v0.1)
 
-Six panels behind hash routes (`#status`, `#checkpoints`, `#plan`, `#logs`, `#review`, `#wiki`). React + Vite + Tailwind, dark by default, single-accent palette (emerald), 4U.6 a11y polish (axe-core gated):
+Honest list:
 
-| Panel              | Purpose                                                                                                                                                                                                                                            |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Status (Bento)** | 4-card grid (state · spent vs cap · elapsed · open checkpoints) + agents row. Empty state shows the GoalBox                                                                                                                                        |
-| **Checkpoints**    | Per-kind cards: plan-approval / risky-change / final-review (Approve/Comment/Reject), goal-clarification / merge-conflict / escalation (free-form), budget-exceeded (Stop / Increase / Continue once). Wiki `[hint]` line above body when relevant |
-| **Plan**           | Latest-version card + version dropdown; older versions dim the rest of the screen                                                                                                                                                                  |
-| **Logs**           | Virtualized event list (`@tanstack/react-virtual`) + level filter chips + `--json` NDJSON toggle                                                                                                                                                   |
-| **Review**         | Hero card: branches (BranchPill, copy-on-click) + diff-stat sparklines + `final-report.md` (sanitized via `react-markdown` + `rehype-sanitize`). Approve / Discard with confirm modal                                                              |
-| **Wiki**           | Single textarea Q&A — `useAskWiki` hook (debounced 250 ms) + citations panel. Empty-wiki short-circuit                                                                                                                                             |
+- **Multi-task plans run as a single task.** The planner can split a goal into multiple tasks, but v0.1 only dispatches the first. The rest are logged so you can see what got skipped. Full multi-task scheduling is v0.2.
+- **No bundled Node.** You need Node 22+ on PATH yourself for now.
+- **Wiki tab is a stub.** v0.1.x will add the project knowledge base.
+- **Always-accept reviewer.** v0.1 doesn't block on review verdicts; v0.2 adds a real reviewer agent.
 
-Keyboard shortcuts: `r` status · `c` checkpoints · `p` plan · `l` logs · `v` review · `w` wiki · `?` help dialog · `Esc` close any modal.
-
-Per-run snapshot flow uses 6 single-shape data hooks (`useRunSnapshot`, `useCheckpoints`, `useEvents`, `usePlanList`, `useFinalReview`, `useAskWiki`) each with an injectable transport. Browser builds use mock transports; the Tauri shell (4D.2) swaps them for `invoke()` calls without touching components.
+If any of those land your show-stopper, hold off on v0.1 and watch the [milestones on Beaver-AI-Dev](https://github.com/ashmoonori-afk/Beaver-AI-Dev/milestones).
 
 ---
 
-## Wiki — natural-language Q&A across runs
+## When something doesn't work
 
-Beaver maintains a structured markdown knowledge base at `<userConfigDir>/wiki/` that compounds across runs. Page set: `index.md`, `log.md`, `user-profile.md`, `projects/<slug>.md`, `decisions/<run-id>.md`, `patterns/<slug>.md`.
+If you submit a goal and Beaver shows the **"Sidecar didn't start"** card, the orchestrator process died before recording the run. The card shows the tail of `<workspace>/.beaver/sidecar-stderr.log`. Map it to a fix:
 
-Programmatic:
+| What the log says              | What to do                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------------- |
+| `claude: command not found`    | Install Claude Code (`pnpm add -g @anthropic-ai/claude-code`) and run `claude /login` |
+| `ANTHROPIC_API_KEY is not set` | `export ANTHROPIC_API_KEY=sk-ant-...` then restart Beaver                             |
+| `429`, `rate limit`, `quota`   | Wait a few minutes — Beaver also auto-fails over once between Claude Code and Codex   |
+| `ENOTFOUND`, `ECONNREFUSED`    | Check your network or VPN                                                             |
+| `node: command not found`      | Install Node 22+ from [nodejs.org](https://nodejs.org)                                |
 
-```ts
-import { askWiki, ClaudeCodeAdapter, openDb } from '@beaver-ai/core';
-
-const db = openDb({ path: '.beaver/beaver.db' });
-const adapter = new ClaudeCodeAdapter({ db });
-
-const { answer, sourcePages } = await askWiki({
-  wikiRoot: '~/.config/beaver/wiki',
-  question: 'what did we decide last about auth?',
-  adapter,
-});
-```
-
-From inside Claude Code (via the bundled skill): just ask in English. The `beaver-wiki-ask` skill returns the answer + the `decisions/*.md` page citations.
-
-Two entry points:
-
-- `queryWiki({ wikiRoot, kind, context })` — structured (used internally to attach `[hint]` lines above `plan-approval` / `risky-change-confirmation` checkpoints)
-- `askWiki({ wikiRoot, question, adapter })` — free-form natural language with citation grounding
-
----
-
-## Guardrails (always on)
-
-| Layer                     | Mechanism                                                                                                                                                                     |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Shell call classification | 16 named regex patterns + path-aware `cd / && rm -rf .` resolver. Hard-deny / require-confirmation / allow before every `agent.shell` event                                   |
-| Per-agent USD cap         | Default $1; soft-warn at 70 %, hard-kill at 100 %                                                                                                                             |
-| Per-task USD cap          | Default $3; refuses to spawn next agent if a retry would exceed                                                                                                               |
-| Per-run USD cap           | Default $20; hard-cap pauses run + posts `budget-exceeded` checkpoint (`stop` / `increase` / `continue-once`)                                                                 |
-| Worktree write boundary   | Agent writes outside its `git worktree` flagged → require-confirmation. Codex shim bypass (absolute paths) caught by post-run filesystem audit (`agent.shell.bypass-attempt`) |
-| Provider fallback         | Claude usage-limit / rate-limit / quota → auto-retry on Codex (and vice-versa). Anti-loop guard. `BEAVER_NO_FALLBACK=1` to opt out                                            |
-| Crash recovery            | WAL-mode SQLite. Every state transition is an append-only event. `beaver resume <run-id>` replays                                                                             |
-| Hang detection            | Wall-clock per role (planner 5 min … coder 30 min) + 120 s output-stall watchdog                                                                                              |
-| Hook fail-closed          | Sandbox hook errors (DB unreachable, etc.) return `deny` — never fail-open                                                                                                    |
-| UI a11y                   | axe-core gated in CI on every panel + dialog (4U.6 review gate)                                                                                                               |
-
----
-
-## Repo structure
-
-```
-.
-├── .claude-plugin/                # Claude Code plugin manifest + skills + commands
-├── Start-Beaver.{bat,command,sh}  # legacy launcher scripts (replaced by Tauri shell in 4D.1)
-├── docs/                          # architecture + decisions + models + planning
-│   ├── INDEX.md                   # documentation map
-│   ├── architecture/              # 7-layer architecture
-│   ├── decisions/locked.md        # D1–D17
-│   ├── models/                    # cost-budget, plan-format, sandbox-policy, ...
-│   └── planning/devplan/          # phase 0–4D sprint specs + sprint-log.md
-└── packages/
-    ├── core/                      # @beaver-ai/core
-    │   └── src/
-    │       ├── types/             # zod schemas (provider, plan, budget, ...)
-    │       ├── plan/              # PlanSchema + DAG cycle helper
-    │       ├── budget/            # USD cap schema + cost helper
-    │       ├── workspace/         # SQLite + 9 DAOs
-    │       ├── sandbox/           # classifier + classify-cli
-    │       ├── providers/
-    │       │   ├── _shared/       # spawn + kill (reused by both adapters)
-    │       │   ├── claude-code/   # adapter + parse + protocol + hook
-    │       │   ├── codex/         # adapter + parse + protocol + shim + audit
-    │       │   └── _test/         # mock-cli + JSON fixtures
-    │       ├── orchestrator/      # FSM + loop + LLM sub-decisions + provider fallback
-    │       ├── agent-runtime/     # worktree + lifecycle + stall watchdog
-    │       ├── agent-baseline/    # AGENT_BASELINE.md + role addenda + render
-    │       ├── feedback/          # checkpoint primitive + wiki-query
-    │       └── wiki/              # bootstrap + ingest + askWiki / queryWiki
-    ├── cli/                       # @beaver-ai/cli — bin.ts + commands + renderers
-    ├── server/                    # @beaver-ai/server (Fastify, --server mode)
-    ├── webapp/                    # @beaver-ai/webapp — Phase 4U React UI
-    │   └── src/
-    │       ├── components/        # Bento, AgentCard, Cost/State/Elapsed,
-    │       │                      # CheckpointCard, CheckpointPanel,
-    │       │                      # PlanPanel, LogsPanel, ReviewPanel,
-    │       │                      # WikiSearch, HelpDialog, ModalShell, ...
-    │       ├── checkpoints/       # per-kind body modules + actions + registry + HintLine
-    │       ├── hooks/             # 6 single-shape data hooks + 6 mock transports
-    │       ├── lib/               # buttonClasses + cn() utility
-    │       └── styles/            # tokens + reduced-motion media query
-    ├── desktop/                   # @beaver-ai/desktop — Phase 4D Tauri shell (4D.1)
-    │   └── src-tauri/             # Rust crate + tauri.conf.json + capabilities
-    └── beaver-ai/                 # the published meta-package (Beaver class)
-```
-
----
-
-## Development
-
-```bash
-pnpm install
-pnpm test                                                         # 581 tests
-pnpm lint                                                         # eslint flat config
-pnpm format:check                                                 # prettier
-pnpm -r exec tsc --noEmit                                         # strict TS
-pnpm dlx madge@latest --circular packages --extensions ts,tsx     # 0 cycles
-pnpm --filter @beaver-ai/webapp build                             # ≤ 250 KB gz
-```
-
-Sprint conventions in [`docs/planning/devplan/conventions.md`](./docs/planning/devplan/conventions.md). Every sprint must pass three exit gates: **spaghetti** (architectural integrity) · **bug** (functional verification) · **review** (D15 baseline applied to ourselves).
-
-Phase 4U review pass (W.8) ran 5 parallel multi-perspective reviews (spaghetti, security, bug/edge, test coverage, architecture) and applied the HIGH/MEDIUM findings before proceeding to 4D. DoD verified by 5x consecutive `pnpm test` runs (0 flakes).
-
-Sprint history in [`docs/planning/devplan/sprint-log.md`](./docs/planning/devplan/sprint-log.md).
-
----
-
-## Phase status
-
-| Phase              | Status         | Notes                                                                    |
-| ------------------ | -------------- | ------------------------------------------------------------------------ |
-| 0 — Foundations    | ✅ shipped     | repo · core types · DAO · sandbox                                        |
-| 1 — Providers      | ✅ shipped     | Claude Code adapter + Codex adapter + auto-fallback + PreToolUse hook    |
-| 2 — Orchestrator   | ✅ shipped     | FSM + agent runtime + budget guard                                       |
-| 3 — CLI            | ✅ shipped     | `init` / `run` / `status` / `logs` / `checkpoints` / `answer` / `resume` |
-| 4 — Server         | ✅ shipped     | Fastify + SSE (legacy `--server` mode)                                   |
-| 4U — UI redesign   | ✅ shipped     | W.1–W.7 + W.8 review pass                                                |
-| 4D — Desktop shell | 🚧 in progress | 4D.0 sub-decisions locked; 4D.1 scaffold this branch                     |
-| 5 — Wiki           | ✅ shipped     | bootstrap + ingest + askWiki + queryWiki                                 |
-| 6 — MVP exit       | ✅ shipped     | integration loop + audit + packaging (Claude plugin manifest)            |
-
----
-
-## What's deferred to v0.2
-
-- **Tauri 4D.2–4D.5** — invoke wiring for the 6 transports, signed Win64 .msi installer, macOS .dmg notarization, Linux .AppImage, file association
-- **Light-mode theme** (4U.7) — Tailwind tokens are dark-only by default; light theme deferred to tail
-- **Adapter base-class refactor** — ClaudeCodeAdapter and CodexAdapter share ~80 lines of run-loop structure. Will extract `runProviderLoop(adapter, providerSpec)` once a 3rd adapter exists
-- **Real-LLM integration test gate** — current tests use mock-cli for determinism; CI does not spend USD
-- **OS-level sandbox** (`sandbox-exec` on macOS, `bubblewrap` on Linux) — Codex shim is "audited policy boundary, not a hard sandbox" (per D9). v0.2 hardening adds the OS layer
+For other errors, the banner at the top of the app classifies the most common failures and offers a one-click action.
 
 ---
 
 ## License
 
-MIT — see commit history for contributor list (Co-Authored-By Claude Opus 4.7).
+[MIT](./LICENSE) — use it, fork it, ship it.
+
+## Found a bug?
+
+Open an issue at [**Beaver-AI-Dev**](https://github.com/ashmoonori-afk/Beaver-AI-Dev/issues) with:
+
+- Your OS + `node --version`
+- The text from the **Sidecar diagnostic** card (or `<workspace>/.beaver/sidecar-stderr.log`)
+- The exact goal you typed
+
+This repo is **release artifacts only** — source, sprint history, and active development live at [Beaver-AI-Dev](https://github.com/ashmoonori-afk/Beaver-AI-Dev).

@@ -1,9 +1,0 @@
-{
-  "name": "beaver-ai",
-  "version": "0.1.0",
-  "description": "Beaver AI — fully autonomous development orchestrator. Drives Claude Code + Codex agents through plan → execute → review → integrate loops with strong policy guardrails (sandbox, budget, hooks).",
-  "homepage": "https://github.com/ashmoonori-afk/Beaver-AI-Dev",
-  "license": "MIT",
-  "skills": ["./skills/beaver-runner.md", "./skills/beaver-wiki-ask.md"],
-  "commands": ["./commands/beaver.md"]
-}
