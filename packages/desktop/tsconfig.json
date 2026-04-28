@@ -1,0 +1,9 @@
+{
+  "//": "Rust-only package — no TypeScript sources. This stub keeps `pnpm -r exec tsc --noEmit` happy without forcing a per-package skip rule in CI.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "files": [],
+  "include": []
+}
