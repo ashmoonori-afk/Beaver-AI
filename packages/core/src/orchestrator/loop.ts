@@ -26,10 +26,13 @@ import { insertPlan } from '../workspace/dao/plans.js';
 import { updateRunStatus } from '../workspace/dao/runs.js';
 
 import { transition, type RunState } from './fsm.js';
+import { validateHandoff, type HandoffError } from './handoff.js';
 
 const SOURCE = 'orchestrator';
 const FINAL_REVIEW_KIND = 'final-review';
+const ESCALATION_KIND = 'escalation';
 const APPROVE_RESPONSES = new Set(['approve', 'approved', 'yes']);
+const DEFAULT_RUN_CAP_USD = 20;
 
 export interface OrchestratorContext {
   db: Db;
@@ -51,6 +54,10 @@ export interface OrchestratorContext {
   pollIntervalMs?: number;
   /** Hard cap on poll waiting (default 60 s; tests inject smaller). */
   pollTimeoutMs?: number;
+  /** Run-level USD cap for handoff validation (Phase 7.3). Defaults to $20. */
+  runCapUsd?: number;
+  /** Skip handoff validation (Phase 7.3). Tests with intentional cycles use this. */
+  skipHandoffValidation?: boolean;
 }
 
 export interface OrchestratorRunResult {
@@ -72,6 +79,16 @@ export async function runOrchestrator(ctx: OrchestratorContext): Promise<Orchest
   if (ctx.plan.tasks.length === 0) {
     state = applyTransition(ctx, state, { type: 'FINAL_REVIEW_REQUESTED' });
   } else {
+    // Phase 7.3: validate handoff before dispatching the first coder.
+    // Failure escalates to a human via an `escalation` checkpoint and
+    // FAILS the run rather than burning budget on a doomed plan.
+    const validation = ctx.skipHandoffValidation
+      ? { ok: true as const }
+      : validateHandoff(ctx.plan, { runCapUsd: ctx.runCapUsd ?? DEFAULT_RUN_CAP_USD });
+    if (!validation.ok) {
+      state = postHandoffEscalation(ctx, state, validation.errors);
+      return { finalState: state };
+    }
     state = applyTransition(ctx, state, { type: 'PLAN_APPROVED' });
     state = await runExecuteReview(ctx, state);
   }
@@ -88,6 +105,40 @@ export async function runOrchestrator(ctx: OrchestratorContext): Promise<Orchest
 function enterPlanning(ctx: OrchestratorContext, state: RunState, runsRoot: string): RunState {
   const next = applyTransition(ctx, state, { type: 'PLAN_DRAFTED' });
   persistPlanV1(ctx, runsRoot);
+  return next;
+}
+
+/**
+ * Phase 7.3 — handoff validator failed. Post an `escalation` checkpoint
+ * with a one-line summary per error so the user can see exactly which
+ * task / plan-level rule broke, then FAIL the run cleanly. The
+ * checkpoint is informational; the run does not wait for an answer.
+ */
+function postHandoffEscalation(
+  ctx: OrchestratorContext,
+  state: RunState,
+  errors: readonly HandoffError[],
+): RunState {
+  const summary = errors.map((e) => `[${e.validator}] ${e.scope}: ${e.message}`).join('\n');
+  insertCheckpoint(ctx.db, {
+    id: `${ctx.runId}:handoff-escalation`,
+    run_id: ctx.runId,
+    kind: ESCALATION_KIND,
+    status: 'pending',
+    prompt: `Handoff validation failed before dispatch:\n\n${summary}`,
+  });
+  insertEvent(ctx.db, {
+    run_id: ctx.runId,
+    ts: now(),
+    source: SOURCE,
+    type: 'handoff.failed',
+    payload_json: JSON.stringify({ errors }),
+  });
+  const next = applyTransition(ctx, state, {
+    type: 'FAIL',
+    reason: `handoff: ${errors.length} validator(s) failed`,
+  });
+  updateRunStatus(ctx.db, ctx.runId, 'FAILED');
   return next;
 }
 

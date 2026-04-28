@@ -192,6 +192,64 @@ describe('runOrchestrator — single-task plan', () => {
   });
 });
 
+describe('runOrchestrator — handoff validation (Phase 7.3)', () => {
+  it('FAILS the run + posts an escalation checkpoint when role/provider mismatches', async () => {
+    const badPlan: Plan = {
+      version: 1,
+      goal: 'build',
+      createdAt: '2026-04-27T00:00:00Z',
+      tasks: [
+        {
+          ...task('t1'),
+          role: 'planner',
+          providerHint: 'codex',
+        },
+      ],
+    };
+    const ctx = {
+      db,
+      runId: 'r1',
+      goal: 'g',
+      plan: badPlan,
+      runsRoot: workdir,
+      pollIntervalMs: 25,
+      pollTimeoutMs: 5_000,
+      executor: async (): Promise<RunResult> => okResult(),
+    };
+    const result = await runOrchestrator(ctx);
+    expect(result.finalState).toBe('FAILED');
+    expect(getRun(db, 'r1')?.status).toBe('FAILED');
+    expect(getCheckpoint(db, 'r1:handoff-escalation')?.kind).toBe('escalation');
+    expect(listEventsByType(db, 'r1', 'handoff.failed')).toHaveLength(1);
+  });
+
+  it('skipHandoffValidation=true bypasses the validator', async () => {
+    // Same bad plan, but the test injects skipHandoffValidation so
+    // existing tests with intentional shapes still run end-to-end.
+    const badPlan: Plan = {
+      version: 1,
+      goal: 'build',
+      createdAt: '2026-04-27T00:00:00Z',
+      tasks: [{ ...task('t1'), role: 'planner', providerHint: 'codex' }],
+    };
+    const ctx = {
+      db,
+      runId: 'r1',
+      goal: 'g',
+      plan: badPlan,
+      runsRoot: workdir,
+      pollIntervalMs: 25,
+      pollTimeoutMs: 5_000,
+      executor: async (): Promise<RunResult> => okResult(),
+      skipHandoffValidation: true,
+    };
+    const approval = approveSoon('r1:final-review');
+    const [result] = await Promise.all([runOrchestrator(ctx), approval]);
+    expect(result.finalState).toBe('COMPLETED');
+    expect(getCheckpoint(db, 'r1:handoff-escalation')).toBeNull();
+  });
+});
+
 describe('runOrchestrator — crash + replay rebuilds FSM state', () => {
   it('replaying state.transition events reconstructs the last state', async () => {
     // Drive a happy run to completion, then prove that replaying the

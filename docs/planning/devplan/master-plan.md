@@ -31,7 +31,7 @@ Order of execution (top to bottom). Each sprint is its own branch (`dev/<id>-…
 | 1   | W.9     | UI bug fix — ElapsedClock label + mock timing          | shipped     |
 | 2   | 7.1     | Orchestrator FSM gains REFINING_GOAL state             | shipped     |
 | 3   | 7.2     | Refined-goal UI surface (new checkpoint kind)          | shipped     |
-| 4   | 7.3     | Pre-coder handoff validation                           | queued      |
+| 4   | 7.3     | Pre-coder handoff validation                           | shipped     |
 | 5   | 8.1     | UsageSchema gains input/output/cached token fields     | queued      |
 | 6   | 8.2     | RunSnapshot gets tokens + costMode                     | queued      |
 | 7   | 8.3     | CostTicker dual mode (tokens vs usd)                   | queued      |
