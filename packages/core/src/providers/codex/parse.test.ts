@@ -36,6 +36,40 @@ describe('parseLine', () => {
   it('returns null for the mock-cli {"kind":"final",...} terminator', () => {
     expect(parseLine('{"kind":"final","result":{}}')).toBeNull();
   });
+
+  it('lifts cached_input_tokens from a real Codex token_count event (Phase 8)', () => {
+    const line = JSON.stringify({
+      msg: {
+        type: 'token_count',
+        input_tokens: 100,
+        output_tokens: 50,
+        cached_input_tokens: 30,
+      },
+    });
+    expect(parseLine(line)).toMatchObject({
+      type: 'usage',
+      tokensIn: 100,
+      tokensOut: 50,
+      cachedInputTokens: 30,
+    });
+  });
+
+  it('also lifts prompt_tokens_details.cached_tokens (alternate Codex shape)', () => {
+    const line = JSON.stringify({
+      msg: {
+        type: 'token_count',
+        input_tokens: 100,
+        output_tokens: 50,
+        prompt_tokens_details: { cached_tokens: 25 },
+      },
+    });
+    expect(parseLine(line)).toMatchObject({
+      type: 'usage',
+      tokensIn: 100,
+      tokensOut: 50,
+      cachedInputTokens: 25,
+    });
+  });
 });
 
 describe('toAgentEvent', () => {

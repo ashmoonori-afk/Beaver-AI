@@ -30,6 +30,8 @@ export const CodexUsageSchema = z.object({
   type: z.literal('usage'),
   tokensIn: z.number().int().nonnegative(),
   tokensOut: z.number().int().nonnegative(),
+  /** Phase 8 — OpenAI prompt cache hits (cached input tokens). */
+  cachedInputTokens: z.number().int().nonnegative().optional(),
   model: z.string().min(1),
 });
 

@@ -38,6 +38,11 @@ interface CodexRealMsg {
   last_agent_message?: string;
   input_tokens?: number;
   output_tokens?: number;
+  /** Phase 8 — OpenAI prompt cache hits.
+   *  Codex emits this either as `cached_input_tokens` (top-level on
+   *  token_count) or under `prompt_tokens_details.cached_tokens`. */
+  cached_input_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number };
   error?: { message?: string };
 }
 
@@ -56,10 +61,17 @@ function liftRealCodexEvent(raw: Record<string, unknown>): CodexStreamEvent | nu
     typeof msg.input_tokens === 'number' &&
     typeof msg.output_tokens === 'number'
   ) {
+    const cached =
+      typeof msg.cached_input_tokens === 'number'
+        ? msg.cached_input_tokens
+        : typeof msg.prompt_tokens_details?.cached_tokens === 'number'
+          ? msg.prompt_tokens_details.cached_tokens
+          : undefined;
     return {
       type: 'usage',
       tokensIn: msg.input_tokens,
       tokensOut: msg.output_tokens,
+      ...(cached !== undefined ? { cachedInputTokens: cached } : {}),
       model: 'codex',
     };
   }
@@ -100,7 +112,12 @@ export function toAgentEvent(e: CodexStreamEvent, source = 'agent'): AgentEvent 
         ts,
         source,
         type: 'agent.usage',
-        payload: { tokensIn: e.tokensIn, tokensOut: e.tokensOut, model: e.model },
+        payload: {
+          tokensIn: e.tokensIn,
+          tokensOut: e.tokensOut,
+          ...(e.cachedInputTokens !== undefined ? { cachedInputTokens: e.cachedInputTokens } : {}),
+          model: e.model,
+        },
       };
     case 'done':
       return { ts, source, type: 'agent.stop', payload: { reason: e.reason ?? 'end' } };

@@ -47,6 +47,9 @@ interface ClaudeRealAssistantContent {
 interface ClaudeRealUsage {
   input_tokens?: number;
   output_tokens?: number;
+  /** Anthropic prompt-cache hit count (Phase 8). Optional — older
+   *  CLI versions don't emit it. */
+  cache_read_input_tokens?: number;
 }
 interface ClaudeRealAssistantMessage {
   content?: ClaudeRealAssistantContent[];
@@ -56,7 +59,9 @@ interface ClaudeRealAssistantMessage {
 
 function liftRealClaudeEvent(raw: Record<string, unknown>): ClaudeStreamEvent | null {
   const t = raw.type;
-  // assistant message: collect text deltas + per-turn usage
+  // assistant message with content: emit message_delta. Falls through to
+  // the usage block (below) for rollup-only messages so we don't lose
+  // token counts on the final no-content turn.
   if (t === 'assistant' && typeof raw.message === 'object' && raw.message !== null) {
     const msg = raw.message as ClaudeRealAssistantMessage;
     const text = (msg.content ?? [])
@@ -64,7 +69,7 @@ function liftRealClaudeEvent(raw: Record<string, unknown>): ClaudeStreamEvent | 
       .map((c) => c.text as string)
       .join('');
     if (text.length > 0) return { type: 'message_delta', text };
-    return null;
+    // text empty → fall through; usage block below handles rollup-only.
   }
   // result event: final response + cost. Surfaces error subtypes verbatim
   // so api.ts fallback logic can match "usage limit" / "rate limit" etc.
@@ -93,10 +98,13 @@ function liftRealClaudeEvent(raw: Record<string, unknown>): ClaudeStreamEvent | 
   ) {
     const u = (raw.message as ClaudeRealAssistantMessage).usage as ClaudeRealUsage;
     if (typeof u.input_tokens === 'number' && typeof u.output_tokens === 'number') {
+      const cached =
+        typeof u.cache_read_input_tokens === 'number' ? u.cache_read_input_tokens : undefined;
       return {
         type: 'usage',
         tokensIn: u.input_tokens,
         tokensOut: u.output_tokens,
+        ...(cached !== undefined ? { cachedInputTokens: cached } : {}),
         model:
           typeof (raw.message as ClaudeRealAssistantMessage).model === 'string'
             ? ((raw.message as ClaudeRealAssistantMessage).model as string)
@@ -128,7 +136,12 @@ export function toAgentEvent(e: ClaudeStreamEvent, source = 'agent'): AgentEvent
         ts,
         source,
         type: 'agent.usage',
-        payload: { tokensIn: e.tokensIn, tokensOut: e.tokensOut, model: e.model },
+        payload: {
+          tokensIn: e.tokensIn,
+          tokensOut: e.tokensOut,
+          ...(e.cachedInputTokens !== undefined ? { cachedInputTokens: e.cachedInputTokens } : {}),
+          model: e.model,
+        },
       };
     case 'stop':
       return { ts, source, type: 'agent.stop', payload: { reason: e.reason ?? 'end' } };

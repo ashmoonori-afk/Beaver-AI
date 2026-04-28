@@ -30,6 +30,8 @@ export const ClaudeUsageSchema = z.object({
   type: z.literal('usage'),
   tokensIn: z.number().int().nonnegative(),
   tokensOut: z.number().int().nonnegative(),
+  /** Phase 8 — Anthropic prompt cache hits (input tokens served from cache). */
+  cachedInputTokens: z.number().int().nonnegative().optional(),
   model: z.string().min(1),
 });
 

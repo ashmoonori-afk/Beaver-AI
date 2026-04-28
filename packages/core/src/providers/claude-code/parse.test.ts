@@ -37,6 +37,41 @@ describe('parseLine', () => {
   it('returns null for the mock-cli {"kind":"final",...} terminator', () => {
     expect(parseLine('{"kind":"final","result":{}}')).toBeNull();
   });
+
+  it('lifts cache_read_input_tokens from a real Claude usage rollup (Phase 8)', () => {
+    // Real Claude attaches usage to a final assistant message with no
+    // text content (the lifter returns message_delta for content-bearing
+    // turns; the rollup is its own event).
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [],
+        model: 'claude-3-5-sonnet',
+        usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 30 },
+      },
+    });
+    const parsed = parseLine(line);
+    expect(parsed).toMatchObject({
+      type: 'usage',
+      tokensIn: 100,
+      tokensOut: 50,
+      cachedInputTokens: 30,
+      model: 'claude-3-5-sonnet',
+    });
+  });
+
+  it('omits cachedInputTokens when the source has no cache field', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [],
+        usage: { input_tokens: 100, output_tokens: 50 },
+      },
+    });
+    const parsed = parseLine(line);
+    expect(parsed).toMatchObject({ type: 'usage', tokensIn: 100, tokensOut: 50 });
+    expect(parsed).not.toHaveProperty('cachedInputTokens');
+  });
 });
 
 describe('toAgentEvent', () => {
