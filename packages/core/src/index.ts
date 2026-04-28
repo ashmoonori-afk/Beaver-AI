@@ -30,7 +30,14 @@ export * from './agent-baseline/write-to-worktree.js';
 // orchestrator/
 export * from './orchestrator/fsm.js';
 export * from './orchestrator/loop.js';
+export * from './orchestrator/refiner.js';
+export * from './orchestrator/handoff.js';
 export * as decisions from './orchestrator/decisions/index.js';
+
+// refinement/ (W.12 — real LLM-backed planner output)
+export * from './refinement/llm-refiner.js';
+export * from './refinement/parse.js';
+export * from './refinement/prompt.js';
 
 // sandbox/
 export * from './sandbox/patterns.js';

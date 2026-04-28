@@ -163,9 +163,15 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     );
 
     const stderr = spawned.stderr();
+    const fullText = textChunks.join('');
     const summary =
-      textChunks.join('').slice(0, SUMMARY_MAX_CHARS) ||
+      fullText.slice(0, SUMMARY_MAX_CHARS) ||
       (stderr.length > 0 ? stderr.slice(0, SUMMARY_MAX_CHARS) : `status=${status}`);
+    // W.12 — surface the full assistant text so the refiner (which needs
+    // the entire JSON document, not the 500-char display summary) can
+    // read it. Optional in RunResult; skipped when empty so we don't
+    // emit "" for adapter runs that produced no text.
+    const finalAssistantMessage = fullText.length > 0 ? fullText : undefined;
     const usage: Usage = totalUsage.model === '?' ? totalUsage : totalUsage;
 
     return RunResultSchema.parse({
@@ -173,6 +179,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       summary,
       artifacts: [],
       usage,
+      ...(finalAssistantMessage !== undefined ? { finalAssistantMessage } : {}),
       rawTranscriptPath: transcriptPath,
     });
   }

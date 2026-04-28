@@ -43,6 +43,8 @@ Order of execution (top to bottom). Each sprint is its own branch (`dev/<id>-…
 | 13  | review  | Final 5-loop multi-perspective review + fixes          | shipped     |
 | 14  | W.10    | Ralph-inspired PRD/MVP refinement + AGENTS.md          | shipped     |
 | 15  | W.11    | Refiner contract + REFINING_GOAL loop integration       | shipped     |
+| 16  | W.12.1  | LlmRefiner — real LLM-backed PRD/MVP generation         | shipped     |
+| 17  | W.12.2  | `beaver refine` CLI subcommand + E2E verification       | shipped     |
 
 ---
 

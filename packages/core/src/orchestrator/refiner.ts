@@ -56,9 +56,9 @@ export interface RefinementResult {
   enrichedGoal: string;
   assumptions: readonly string[];
   questions: readonly string[];
-  clarifyingQuestions?: readonly ClarifyingQuestion[];
-  prd?: PRD;
-  mvp?: MVP;
+  clarifyingQuestions?: readonly ClarifyingQuestion[] | undefined;
+  prd?: PRD | undefined;
+  mvp?: MVP | undefined;
   /** True when the planner is confident enough to skip user review.
    *  The orchestrator auto-advances to PLANNING. False posts a
    *  `goal-refinement` checkpoint and waits for human input. */

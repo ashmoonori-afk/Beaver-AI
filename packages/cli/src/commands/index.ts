@@ -9,6 +9,7 @@ import { runAnswer } from './answer.js';
 import { runCheckpoints } from './checkpoints.js';
 import { runInit } from './init.js';
 import { runLogs } from './logs.js';
+import { runRefine } from './refine.js';
 import { runResume } from './resume.js';
 import { runRun } from './run.js';
 import { runStatus } from './status.js';
@@ -18,6 +19,7 @@ export type CommandHandler = (args: string[]) => Promise<number>;
 export const COMMANDS: Record<string, CommandHandler> = {
   init: runInit,
   run: runRun,
+  refine: runRefine,
   status: runStatus,
   logs: runLogs,
   checkpoints: runCheckpoints,
