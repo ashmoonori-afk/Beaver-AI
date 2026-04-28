@@ -22,12 +22,12 @@ describe('makeMockTransport', () => {
     expect(seen[0]?.agents[0]?.role).toBe('planner');
   });
 
-  it('walks PLANNING -> EXECUTING -> COMPLETED at 1500ms ticks', () => {
+  it('walks PLANNING -> EXECUTING -> COMPLETED at 5000ms ticks', () => {
     const transport = makeMockTransport('demo goal');
     const seen: RunSnapshot[] = [];
     transport.subscribe('r-1', (s) => seen.push(s));
-    vi.advanceTimersByTime(1500);
-    vi.advanceTimersByTime(1500);
+    vi.advanceTimersByTime(5000);
+    vi.advanceTimersByTime(5000);
     expect(seen.map((s) => s.state)).toEqual(['PLANNING', 'EXECUTING', 'COMPLETED']);
     const last = seen.at(-1)!;
     expect(last.endedAt).toBeDefined();
@@ -39,7 +39,7 @@ describe('makeMockTransport', () => {
     const seen: RunSnapshot[] = [];
     const unsub = transport.subscribe('r-1', (s) => seen.push(s));
     unsub();
-    vi.advanceTimersByTime(5000);
+    vi.advanceTimersByTime(15000);
     expect(seen).toHaveLength(1);
     expect(seen[0]?.state).toBe('PLANNING');
   });

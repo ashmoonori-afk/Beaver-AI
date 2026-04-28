@@ -6,7 +6,10 @@
 import type { RunSnapshot } from '../types.js';
 import type { RunSnapshotTransport } from './useRunSnapshot.js';
 
-const TICK_MS = 1500;
+// 5 s ticks make the demo state-machine animation browsable — at 1.5 s
+// the run flashes through PLANNING → EXECUTING → COMPLETED faster than
+// a user can read the bento.
+const TICK_MS = 5000;
 
 export function makeMockTransport(initialGoal: string): RunSnapshotTransport {
   return {

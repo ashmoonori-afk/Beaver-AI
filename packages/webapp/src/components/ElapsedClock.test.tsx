@@ -6,7 +6,7 @@ import '@testing-library/jest-dom/vitest';
 
 import { ElapsedClock, __test__ } from './ElapsedClock.js';
 
-const { formatElapsed } = __test__;
+const { formatElapsed, formatEndedAt } = __test__;
 
 afterEach(() => {
   cleanup();
@@ -31,6 +31,18 @@ describe('formatElapsed', () => {
   });
 });
 
+describe('formatEndedAt', () => {
+  it('returns null for undefined or unparseable input', () => {
+    expect(formatEndedAt(undefined)).toBeNull();
+    expect(formatEndedAt('not-a-date')).toBeNull();
+  });
+
+  it('formats a valid ISO timestamp as HH:MM:SS in local time', () => {
+    const out = formatEndedAt('2026-04-27T12:34:56.000Z');
+    expect(out).toMatch(/^\d{2}:\d{2}:\d{2}$/);
+  });
+});
+
 describe('<ElapsedClock />', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -42,7 +54,7 @@ describe('<ElapsedClock />', () => {
     expect(screen.getByText('live')).toBeInTheDocument();
   });
 
-  it('freezes the clock on terminal state and shows the frozen caption', () => {
+  it('shows an "ended HH:MM:SS" caption on terminal state instead of "frozen"', () => {
     render(
       <ElapsedClock
         startedAt="2026-04-27T00:00:00.000Z"
@@ -50,8 +62,19 @@ describe('<ElapsedClock />', () => {
         state="COMPLETED"
       />,
     );
-    expect(screen.getByText('frozen')).toBeInTheDocument();
+    expect(screen.queryByText('frozen')).toBeNull();
+    expect(screen.queryByText('live')).toBeNull();
+    expect(screen.getByText(/^ended \d{2}:\d{2}:\d{2}$/)).toBeInTheDocument();
     expect(screen.getByText('00:30')).toBeInTheDocument();
+  });
+
+  it('omits the caption entirely on terminal state with no endedAt', () => {
+    const { container } = render(
+      <ElapsedClock startedAt="2026-04-27T00:00:00.000Z" state="ABORTED" />,
+    );
+    expect(screen.queryByText('frozen')).toBeNull();
+    expect(screen.queryByText('live')).toBeNull();
+    expect(container.querySelectorAll('div.text-caption')).toHaveLength(0);
   });
 
   it('ticks once per second while running', () => {
