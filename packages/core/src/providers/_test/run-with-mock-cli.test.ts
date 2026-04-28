@@ -62,5 +62,7 @@ describe('runWithMockCli', () => {
       const actualJson = JSON.stringify({ events: r.events, finalResult: r.finalResult });
       expect(actualJson).toBe(expectedJson);
     }
-  }, 30_000);
+    // Generous timeout: 100 child-process spawns on Windows can run
+    // ~3-5x slower than on Linux CI. 60s gives headroom on both.
+  }, 60_000);
 });
