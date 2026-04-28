@@ -21,13 +21,17 @@ import {
   insertRun,
   listEventsByRun,
   listPendingCheckpoints,
+  makeLlmPlanner,
+  makeLlmRefiner,
   openDb,
   runMigrations,
   runOrchestrator,
   type AgentEvent,
   type Db,
   type Plan,
+  type Planner,
   type ProviderAdapter,
+  type Refiner,
   type RunState,
   type Task,
 } from '@beaver-ai/core';
@@ -48,6 +52,15 @@ export interface BeaverOptions {
   autoApproveFinalReview?: boolean;
   /** Stream raw agent events to callers such as the CLI. */
   onAgentEvent?: (event: AgentEvent) => void;
+  /** W.12.4 — explicit refiner. When omitted, the env var BEAVER_REFINER
+   *  decides: 'llm' wires the LlmRefiner against the project's
+   *  ClaudeCodeAdapter; anything else (or absent) skips refinement
+   *  entirely (backward compat with v0.0 callers). */
+  refiner?: Refiner;
+  /** W.12.4 — explicit planner. Same precedence as `refiner`. When
+   *  omitted and BEAVER_PLANNER=llm, the LlmPlanner is wired. Without
+   *  either, the legacy stubPlanFor(goal) single-task plan is used. */
+  planner?: Planner;
 }
 
 export interface RunRequest {
@@ -235,7 +248,18 @@ export class Beaver {
           : (this.opts.claudeAdapter ??
             new ClaudeCodeAdapter({ db, providerForRate: 'claude-code' }));
 
-      const plan = req.plan ?? stubPlanFor(req.goal);
+      // W.12.4 — resolve refiner + planner from explicit opts > env > none.
+      // The orchestrator handles the three states cleanly:
+      //   - both set     -> INITIALIZED -> REFINING_GOAL -> PLANNING (PRD-driven)
+      //   - planner only -> INITIALIZED -> PLANNING (PRD-less plan synthesis)
+      //   - neither      -> INITIALIZED + req.plan ?? stubPlanFor(goal)
+      const refiner =
+        this.opts.refiner ??
+        (process.env['BEAVER_REFINER'] === 'llm' ? makeLlmRefiner({ adapter }) : undefined);
+      const planner =
+        this.opts.planner ??
+        (process.env['BEAVER_PLANNER'] === 'llm' ? makeLlmPlanner({ adapter }) : undefined);
+      const plan = planner ? undefined : (req.plan ?? stubPlanFor(req.goal));
 
       const autoAnswerCancel =
         this.opts.autoApproveFinalReview === false ? null : startAutoApprover(db, runId);
@@ -245,7 +269,9 @@ export class Beaver {
           db,
           runId,
           goal: req.goal,
-          plan,
+          ...(plan !== undefined ? { plan } : {}),
+          ...(refiner !== undefined ? { refiner } : {}),
+          ...(planner !== undefined ? { planner } : {}),
           executor: async () =>
             adapter.run({
               prompt: req.goal,

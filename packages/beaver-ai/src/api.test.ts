@@ -12,6 +12,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   ClaudeCodeAdapter,
   CodexAdapter,
+  PlanSchema,
   insertRate,
   openDb,
   closeDb,
@@ -53,6 +54,77 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe('Beaver.run() — W.12.4 auto-inject refiner+planner', () => {
+  it('explicit refiner option is threaded into the orchestrator', async () => {
+    const db = openDb({ path: dbPath });
+    try {
+      const adapter = new ClaudeCodeAdapter({
+        cliPath: process.execPath,
+        defaultArgs: [MOCK_CLI, path.join(FX_DIR, 'claude-normal.json')],
+        db,
+        providerForRate: 'claude-code',
+      });
+      let refinerCalls = 0;
+      const beaver = new Beaver({
+        rootPath: tmpDir,
+        dbPath,
+        claudeAdapter: adapter,
+        refiner: async () => {
+          refinerCalls += 1;
+          return { enrichedGoal: 'go', assumptions: [], questions: [], ready: true };
+        },
+      });
+      const r = await beaver.run({ goal: 'do a thing' });
+      expect(refinerCalls).toBe(1);
+      expect(r.finalState).toBe('COMPLETED');
+    } finally {
+      closeDb(db);
+    }
+  }, 30_000);
+
+  it('explicit planner overrides stub plan', async () => {
+    const db = openDb({ path: dbPath });
+    try {
+      const adapter = new ClaudeCodeAdapter({
+        cliPath: process.execPath,
+        defaultArgs: [MOCK_CLI, path.join(FX_DIR, 'claude-normal.json')],
+        db,
+        providerForRate: 'claude-code',
+      });
+      let plannerCalls = 0;
+      const beaver = new Beaver({
+        rootPath: tmpDir,
+        dbPath,
+        claudeAdapter: adapter,
+        planner: async () => {
+          plannerCalls += 1;
+          return PlanSchema.parse({
+            version: 1,
+            goal: 'planner-task',
+            tasks: [
+              {
+                id: 'planner-task',
+                role: 'coder',
+                goal: 'planner-task',
+                prompt: 'planner-task',
+                dependsOn: [],
+                acceptanceCriteria: ['ok'],
+                capabilitiesNeeded: [],
+              },
+            ],
+            createdAt: '2026-04-28T00:00:00.000Z',
+          });
+        },
+      });
+      const r = await beaver.run({ goal: 'do a thing' });
+      expect(plannerCalls).toBe(1);
+      expect(r.finalState).toBe('COMPLETED');
+    } finally {
+      closeDb(db);
+    }
+  }, 30_000);
 });
 
 describe('Beaver.run() E2E (mock-cli driven)', () => {
