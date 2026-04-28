@@ -34,10 +34,14 @@ export * from './orchestrator/refiner.js';
 export * from './orchestrator/handoff.js';
 export * as decisions from './orchestrator/decisions/index.js';
 
-// refinement/ (W.12 — real LLM-backed planner output)
+// refinement/ (W.12.1 — real LLM-backed PRD/MVP)
 export * from './refinement/llm-refiner.js';
 export * from './refinement/parse.js';
 export * from './refinement/prompt.js';
+
+// planning/ (W.12.3 — PRD-driven Plan generation)
+export * from './planning/llm-planner.js';
+export * from './planning/prompt.js';
 
 // sandbox/
 export * from './sandbox/patterns.js';

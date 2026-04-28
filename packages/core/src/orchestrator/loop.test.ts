@@ -505,6 +505,120 @@ describe('runOrchestrator — refinement loop (W.11)', () => {
   });
 });
 
+describe('runOrchestrator — PRD-driven planner (W.12.3)', () => {
+  function readyRefinementWithPRD(rawGoal: string) {
+    return {
+      enrichedGoal: `enriched: ${rawGoal}`,
+      assumptions: ['single-user'],
+      questions: [],
+      ready: true,
+      prd: {
+        overview: 'A minimal local app.',
+        goals: ['create item fast'],
+        userStories: [
+          {
+            id: 'US-001',
+            title: 'Create',
+            description: 'As a user I want X so that Y.',
+            acceptanceCriteria: ['empty rejected'],
+          },
+        ],
+        nonGoals: ['no sync'],
+        successMetrics: ['tests pass'],
+      },
+      mvp: {
+        pitch: 'Offline-first.',
+        features: ['add'],
+        deferred: ['auth'],
+        scope: '~3 days',
+      },
+    };
+  }
+
+  it('completes a full INITIALIZED -> REFINING_GOAL -> PLANNING -> EXECUTING -> COMPLETED with planner', async () => {
+    const refiner = vi.fn(async ({ rawGoal }: { rawGoal: string }) =>
+      readyRefinementWithPRD(rawGoal),
+    );
+    const planner = vi.fn(async ({ refinement }: { refinement?: unknown }) => {
+      // Verify the refinement (PRD/MVP) was threaded into the planner.
+      expect(refinement).toBeDefined();
+      return plan([task('t1')]);
+    });
+    const ctx = {
+      db,
+      runId: 'r1',
+      goal: 'todo app',
+      runsRoot: workdir,
+      pollIntervalMs: 25,
+      pollTimeoutMs: 5_000,
+      executor: async (): Promise<RunResult> => okResult(),
+      refiner,
+      planner,
+    };
+    const approval = approveSoon('r1:final-review');
+    const [result] = await Promise.all([runOrchestrator(ctx), approval]);
+    expect(result.finalState).toBe('COMPLETED');
+    expect(refiner).toHaveBeenCalledTimes(1);
+    expect(planner).toHaveBeenCalledTimes(1);
+    // Planner saw the PRD via refinement.
+    const plannerCall = (planner as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(plannerCall?.[0]?.refinement?.prd?.userStories).toHaveLength(1);
+  });
+
+  it('uses ctx.plan when no planner is supplied (backward compat)', async () => {
+    const ctx = {
+      db,
+      runId: 'r1',
+      goal: 'todo app',
+      plan: plan([task('t1')]),
+      runsRoot: workdir,
+      pollIntervalMs: 25,
+      pollTimeoutMs: 5_000,
+      executor: async (): Promise<RunResult> => okResult(),
+    };
+    const approval = approveSoon('r1:final-review');
+    const [result] = await Promise.all([runOrchestrator(ctx), approval]);
+    expect(result.finalState).toBe('COMPLETED');
+  });
+
+  it('throws when neither plan nor planner is supplied', async () => {
+    const ctx = {
+      db,
+      runId: 'r1',
+      goal: 'g',
+      runsRoot: workdir,
+      pollIntervalMs: 25,
+      pollTimeoutMs: 5_000,
+      executor: async (): Promise<RunResult> => okResult(),
+    };
+    await expect(runOrchestrator(ctx)).rejects.toThrow(/ctx\.plan or ctx\.planner/);
+  });
+
+  it('planner overrides ctx.plan when both are supplied', async () => {
+    const stubPlan = plan([task('stub-task')]);
+    const llmPlan = plan([task('planner-task')]);
+    const planner = vi.fn(async () => llmPlan);
+    const ctx = {
+      db,
+      runId: 'r1',
+      goal: 'todo',
+      plan: stubPlan,
+      planner,
+      runsRoot: workdir,
+      pollIntervalMs: 25,
+      pollTimeoutMs: 5_000,
+      executor: async (taskRecv: Task): Promise<RunResult> => {
+        expect(taskRecv.id).toBe('planner-task'); // not stub-task
+        return okResult();
+      },
+    };
+    const approval = approveSoon('r1:final-review');
+    const [result] = await Promise.all([runOrchestrator(ctx), approval]);
+    expect(result.finalState).toBe('COMPLETED');
+    expect(planner).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('runOrchestrator — crash + replay rebuilds FSM state', () => {
   it('replaying state.transition events reconstructs the last state', async () => {
     // Drive a happy run to completion, then prove that replaying the

@@ -26,6 +26,7 @@ import { insertPlan } from '../workspace/dao/plans.js';
 import { updateRunStatus } from '../workspace/dao/runs.js';
 
 import { waitForAnswer } from '../feedback/checkpoint.js';
+import type { Planner } from '../planning/llm-planner.js';
 
 import { transition, type RunState } from './fsm.js';
 import { validateHandoff, type HandoffError } from './handoff.js';
@@ -49,7 +50,16 @@ export interface OrchestratorContext {
   db: Db;
   runId: string;
   goal: string;
-  plan: Plan;
+  /** Pre-built plan. Optional when `planner` is supplied — the planner
+   *  callback constructs one from the approved refinement after the
+   *  REFINING_GOAL phase. Existing tests pass `plan` directly and skip
+   *  refinement/planner; production wiring (W.12.3) supplies `planner`
+   *  and lets the orchestrator derive the plan from the PRD. */
+  plan?: Plan;
+  /** Phase W.12.3 — produces a Plan from the approved refinement (PRD/MVP).
+   *  Called after `runGoalRefinement` resolves. When omitted, `ctx.plan`
+   *  must be supplied. */
+  planner?: Planner;
   /** Root for plan/transcript files. Defaults to cwd/runs. */
   runsRoot?: string;
   /** Single-task executor. Returns RunResult; loop owns review/transition. */
@@ -91,38 +101,41 @@ export interface OrchestratorRunResult {
 export async function runOrchestrator(ctx: OrchestratorContext): Promise<OrchestratorRunResult> {
   const runsRoot = ctx.runsRoot ?? path.join(process.cwd(), 'runs');
   let state: RunState = 'INITIALIZED';
+  let refinement: RefinementResult | null = null;
 
-  // W.11 — optional refinement pass. When ctx.refiner is supplied the
-  // orchestrator goes INITIALIZED -> REFINING_GOAL -> PLANNING via the
-  // GOAL_REFINEMENT_STARTED + GOAL_REFINED events. Backward-compat:
-  // without a refiner, the existing INITIALIZED + PLAN_DRAFTED -> PLANNING
-  // path runs unchanged so every pre-W.11 test keeps working.
+  // W.11 — optional refinement pass. INITIALIZED -> REFINING_GOAL -> PLANNING
+  // via GOAL_REFINEMENT_STARTED + GOAL_REFINED. Without ctx.refiner the
+  // INITIALIZED + PLAN_DRAFTED -> PLANNING fallback path runs (backward compat).
   if (ctx.refiner) {
-    const refineState = await runGoalRefinement(ctx, state);
-    if (refineState === 'FAILED' || refineState === 'ABORTED') {
-      return { finalState: refineState };
+    const outcome = await runGoalRefinement(ctx, state);
+    if (outcome.state === 'FAILED' || outcome.state === 'ABORTED') {
+      return { finalState: outcome.state };
     }
-    state = refineState; // PLANNING
-    persistPlanV1(ctx, runsRoot);
-  } else {
-    state = enterPlanning(ctx, state, runsRoot);
+    state = outcome.state; // PLANNING
+    refinement = outcome.refinement;
   }
 
-  if (ctx.plan.tasks.length === 0) {
+  // W.12.3 — resolve the plan. Planner wins (PRD-driven), else pre-built
+  // ctx.plan, else hard error.
+  const plan = await resolvePlan(ctx, refinement);
+  if (!ctx.refiner) {
+    state = applyTransition(ctx, state, { type: 'PLAN_DRAFTED' });
+  }
+  persistPlanV1(ctx, plan, runsRoot);
+
+  if (plan.tasks.length === 0) {
     state = applyTransition(ctx, state, { type: 'FINAL_REVIEW_REQUESTED' });
   } else {
-    // Phase 7.3: validate handoff before dispatching the first coder.
-    // Failure escalates to a human via an `escalation` checkpoint and
-    // FAILS the run rather than burning budget on a doomed plan.
+    // Phase 7.3 handoff validation.
     const validation = ctx.skipHandoffValidation
       ? { ok: true as const }
-      : validateHandoff(ctx.plan, { runCapUsd: ctx.runCapUsd ?? DEFAULT_RUN_CAP_USD });
+      : validateHandoff(plan, { runCapUsd: ctx.runCapUsd ?? DEFAULT_RUN_CAP_USD });
     if (!validation.ok) {
       state = postHandoffEscalation(ctx, state, validation.errors);
       return { finalState: state };
     }
     state = applyTransition(ctx, state, { type: 'PLAN_APPROVED' });
-    state = await runExecuteReview(ctx, state);
+    state = await runExecuteReview(ctx, plan, state);
   }
 
   state = await runFinalReview(ctx, state);
@@ -134,10 +147,24 @@ export async function runOrchestrator(ctx: OrchestratorContext): Promise<Orchest
 // ---------------------------------------------------------------------------
 // State handlers — each is small and pure-ish around one boundary.
 
-function enterPlanning(ctx: OrchestratorContext, state: RunState, runsRoot: string): RunState {
-  const next = applyTransition(ctx, state, { type: 'PLAN_DRAFTED' });
-  persistPlanV1(ctx, runsRoot);
-  return next;
+/** W.12.3 — resolve a Plan from the orchestrator context.
+ *
+ *  Priority: ctx.planner (PRD-driven) > ctx.plan (pre-built) > error.
+ *  When the planner is available, it sees the approved refinement so
+ *  it can map PRD user stories to plan tasks.
+ */
+async function resolvePlan(
+  ctx: OrchestratorContext,
+  refinement: RefinementResult | null,
+): Promise<Plan> {
+  if (ctx.planner) {
+    return ctx.planner({
+      rawGoal: ctx.goal,
+      ...(refinement !== null ? { refinement } : {}),
+    });
+  }
+  if (ctx.plan) return ctx.plan;
+  throw new Error('runOrchestrator: ctx.plan or ctx.planner must be supplied; got neither.');
 }
 
 /**
@@ -158,11 +185,18 @@ function enterPlanning(ctx: OrchestratorContext, state: RunState, runsRoot: stri
  * Returns the FSM state after this phase: PLANNING on success, FAILED or
  * ABORTED on terminal exit.
  */
+interface RefinementOutcome {
+  state: RunState;
+  /** Last refinement produced (used by the planner). null when run was
+   *  rejected by the user. */
+  refinement: RefinementResult | null;
+}
+
 async function runGoalRefinement(
   ctx: OrchestratorContext,
   startState: RunState,
-): Promise<RunState> {
-  if (!ctx.refiner) return startState;
+): Promise<RefinementOutcome> {
+  if (!ctx.refiner) return { state: startState, refinement: null };
   const state = applyTransition(ctx, startState, { type: 'GOAL_REFINEMENT_STARTED' });
   let priorResponse: string | undefined;
   let sectionEdits: Record<string, string> = {};
@@ -184,7 +218,10 @@ async function runGoalRefinement(
         type: 'goal.refined',
         payload_json: JSON.stringify({ iteration: i, ready: true }),
       });
-      return applyTransition(ctx, state, { type: 'GOAL_REFINED' });
+      return {
+        state: applyTransition(ctx, state, { type: 'GOAL_REFINED' }),
+        refinement,
+      };
     }
 
     const checkpointId = `${ctx.runId}:goal-refinement:${i}`;
@@ -212,7 +249,10 @@ async function runGoalRefinement(
         type: 'goal.refined',
         payload_json: JSON.stringify({ iteration: i, ready: false, decision: 'approve' }),
       });
-      return applyTransition(ctx, state, { type: 'GOAL_REFINED' });
+      return {
+        state: applyTransition(ctx, state, { type: 'GOAL_REFINED' }),
+        refinement,
+      };
     }
     if (REJECT_RESPONSES.has(response)) {
       const next = applyTransition(ctx, state, {
@@ -220,7 +260,7 @@ async function runGoalRefinement(
         reason: 'user rejected goal refinement',
       });
       updateRunStatus(ctx.db, ctx.runId, 'FAILED');
-      return next;
+      return { state: next, refinement: null };
     }
     // comment:… — accumulate section edits and loop.
     priorResponse = response;
@@ -241,7 +281,10 @@ async function runGoalRefinement(
       hadRefinement: lastRefinement !== null,
     }),
   });
-  return applyTransition(ctx, state, { type: 'GOAL_REFINED' });
+  return {
+    state: applyTransition(ctx, state, { type: 'GOAL_REFINED' }),
+    refinement: lastRefinement,
+  };
 }
 
 /**
@@ -287,9 +330,13 @@ function postHandoffEscalation(
   return next;
 }
 
-async function runExecuteReview(ctx: OrchestratorContext, startState: RunState): Promise<RunState> {
+async function runExecuteReview(
+  ctx: OrchestratorContext,
+  plan: Plan,
+  startState: RunState,
+): Promise<RunState> {
   let state = startState;
-  const task = ctx.plan.tasks[0];
+  const task = plan.tasks[0];
   if (!task) return state;
 
   state = applyTransition(ctx, state, { type: 'TASK_DISPATCHED' });
@@ -374,11 +421,11 @@ function applyTransition(
   return to;
 }
 
-function persistPlanV1(ctx: OrchestratorContext, runsRoot: string): void {
+function persistPlanV1(ctx: OrchestratorContext, plan: Plan, runsRoot: string): void {
   const planDir = path.join(runsRoot, ctx.runId, 'plan');
   fs.mkdirSync(planDir, { recursive: true });
   const planPath = path.join(planDir, 'plan-v1.json');
-  fs.writeFileSync(planPath, JSON.stringify(ctx.plan, null, 2), 'utf8');
+  fs.writeFileSync(planPath, JSON.stringify(plan, null, 2), 'utf8');
   insertPlan(ctx.db, {
     id: `${ctx.runId}:plan:1`,
     run_id: ctx.runId,
