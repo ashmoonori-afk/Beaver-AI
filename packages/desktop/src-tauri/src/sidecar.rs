@@ -153,10 +153,7 @@ pub fn abort_run(run_id: &str) -> Result<(), String> {
 
 #[allow(dead_code)] // used by tests + future status command
 pub fn active_run_count() -> usize {
-    ACTIVE_RUNS
-        .lock()
-        .map(|g| g.len())
-        .unwrap_or(0)
+    ACTIVE_RUNS.lock().map(|g| g.len()).unwrap_or(0)
 }
 
 impl From<ResolveError> for String {

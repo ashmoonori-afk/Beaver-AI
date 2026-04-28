@@ -29,7 +29,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 import {
   __resetWarnedForTest,
-  makeTauriCheckpointTransport,
+  makeTauriAskWikiTransport,
   makeTauriRunSnapshotTransport,
 } from './tauriTransports.js';
 
@@ -79,31 +79,32 @@ describe('makeTauriRunSnapshotTransport', () => {
     expect(seen).toHaveLength(0);
   });
 
-  it('logs but does not throw when listen() rejects', async () => {
+  it('does not throw when listen() rejects (polling is primary)', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const transport = makeTauriRunSnapshotTransport();
     const unsub = transport.subscribe('r-1', () => {});
+    // W.12.6 — listen() is optional fallback insurance; rejection is
+    // swallowed silently because the polling loop is the source of truth.
     deferredListenReject!(new Error('IPC bind failed'));
     await new Promise((r) => setTimeout(r, 0));
-    expect(errSpy).toHaveBeenCalledWith(
-      expect.stringMatching(/listen.*run.snapshot.r-1.*failed/),
-      expect.any(Error),
+    // No error log expected — listen() failure is benign in v0.1.
+    const sawListenError = errSpy.mock.calls.some(
+      ([msg]) => typeof msg === 'string' && msg.includes('listen'),
     );
+    expect(sawListenError).toBe(false);
     unsub();
     errSpy.mockRestore();
   });
 });
 
-describe('stub transport warnings (4D.2.x not-yet-wired)', () => {
-  it('warnOnce fires exactly one console.warn per stub name', () => {
+describe('deferred transport warnings (v0.1.x not-yet-wired)', () => {
+  it('wiki transport warns exactly once per process for the deferred ask flow', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const t1 = makeTauriCheckpointTransport();
-    const t2 = makeTauriCheckpointTransport();
-    const u1 = t1.subscribe('r-1', () => {});
-    const u2 = t2.subscribe('r-2', () => {});
+    const t1 = makeTauriAskWikiTransport();
+    const t2 = makeTauriAskWikiTransport();
+    await t1.ask('q1');
+    await t2.ask('q2');
     expect(warn).toHaveBeenCalledTimes(1);
-    u1();
-    u2();
     warn.mockRestore();
   });
 });

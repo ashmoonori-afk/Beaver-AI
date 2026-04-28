@@ -3,12 +3,10 @@
 // Module map:
 //   - workspace.rs  — active project folder + .beaver/beaver.db resolution
 //   - sidecar.rs    — spawn `beaver run` as a child process (W.12.5)
+//   - db.rs         — SQLite read commands (W.12.6)
 //   - lib.rs        — Tauri commands + handler registration
-//
-// W.12.5 wires `runs_start` to actually spawn the sidecar (was a stub
-// in 4D.1). W.12.6 adds SQLite-reading commands so the 5 stub
-// transports become real.
 
+mod db;
 mod sidecar;
 mod workspace;
 
@@ -66,6 +64,33 @@ fn runs_start(args: sidecar::RunsStartArgs) -> Result<sidecar::RunsStartResult, 
     Ok(sidecar::RunsStartResult { run_id })
 }
 
+// --- W.12.6 SQLite-backed read commands -------------------------------
+
+#[tauri::command]
+fn runs_get(args: db::RunsGetArgs) -> Result<Option<db::RunRow>, String> {
+    db::runs_get(args).map_err(Into::into)
+}
+
+#[tauri::command]
+fn checkpoints_list(args: db::CheckpointsListArgs) -> Result<Vec<db::CheckpointRow>, String> {
+    db::checkpoints_list(args).map_err(Into::into)
+}
+
+#[tauri::command]
+fn checkpoints_answer(args: db::CheckpointsAnswerArgs) -> Result<(), String> {
+    db::checkpoints_answer(args).map_err(Into::into)
+}
+
+#[tauri::command]
+fn events_list(args: db::EventsListArgs) -> Result<Vec<db::EventRow>, String> {
+    db::events_list(args).map_err(Into::into)
+}
+
+#[tauri::command]
+fn plans_list(args: db::PlansListArgs) -> Result<Vec<db::PlanRow>, String> {
+    db::plans_list(args).map_err(Into::into)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -84,6 +109,11 @@ pub fn run() {
             workspace_set,
             workspace_get,
             runs_start,
+            runs_get,
+            checkpoints_list,
+            checkpoints_answer,
+            events_list,
+            plans_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -51,17 +51,12 @@ pub fn set_workspace(path: PathBuf) -> Result<(), ResolveError> {
     if !path.is_dir() {
         return Err(ResolveError::InvalidPath(path.display().to_string()));
     }
-    *ACTIVE_WORKSPACE
-        .lock()
-        .expect("workspace lock poisoned") = Some(path);
+    *ACTIVE_WORKSPACE.lock().expect("workspace lock poisoned") = Some(path);
     Ok(())
 }
 
 pub fn get_workspace() -> Option<PathBuf> {
-    ACTIVE_WORKSPACE
-        .lock()
-        .ok()
-        .and_then(|g| g.clone())
+    ACTIVE_WORKSPACE.lock().ok().and_then(|g| g.clone())
 }
 
 /// Resolve the SQLite path under `<workspace>/.beaver/beaver.db`.
@@ -89,9 +84,7 @@ pub fn resolve_workspace(override_workspace: Option<&Path>) -> Result<PathBuf, R
         .or_else(get_workspace)
         .ok_or(ResolveError::NoWorkspaceSelected)?;
     if !workspace.is_dir() {
-        return Err(ResolveError::InvalidPath(
-            workspace.display().to_string(),
-        ));
+        return Err(ResolveError::InvalidPath(workspace.display().to_string()));
     }
     Ok(workspace)
 }

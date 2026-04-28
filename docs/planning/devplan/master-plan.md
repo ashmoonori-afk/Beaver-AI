@@ -46,6 +46,9 @@ Order of execution (top to bottom). Each sprint is its own branch (`dev/<id>-…
 | 16  | W.12.1  | LlmRefiner — real LLM-backed PRD/MVP generation         | shipped     |
 | 17  | W.12.2  | `beaver refine` CLI subcommand + E2E verification       | shipped     |
 | 18  | W.12.3  | LlmPlanner — PRD-driven Plan generation + orchestrator wiring | shipped     |
+| 19  | W.12.4  | Beaver.run auto-injects refiner+planner from env or opts     | shipped     |
+| 20  | W.12.5  | Tauri runs_start spawns the CLI sidecar for real             | shipped     |
+| 21  | W.12.6  | 5 transports real wiring (SQLite-backed Tauri commands)      | shipped     |
 
 ---
 
