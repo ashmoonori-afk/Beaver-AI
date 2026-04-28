@@ -49,6 +49,7 @@ Order of execution (top to bottom). Each sprint is its own branch (`dev/<id>-…
 | 19  | W.12.4  | Beaver.run auto-injects refiner+planner from env or opts     | shipped     |
 | 20  | W.12.5  | Tauri runs_start spawns the CLI sidecar for real             | shipped     |
 | 21  | W.12.6  | 5 transports real wiring (SQLite-backed Tauri commands)      | shipped     |
+| 22  | W.12.7  | Project folder picker + workspace persistence                | shipped     |
 
 ---
 

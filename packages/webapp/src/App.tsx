@@ -17,6 +17,7 @@ import { LogsPanel } from './components/LogsPanel.js';
 import { PlanPanel } from './components/PlanPanel.js';
 import { ReviewPanel } from './components/ReviewPanel.js';
 import { WikiSearch } from './components/WikiSearch.js';
+import { WorkspaceBanner } from './components/WorkspaceBanner.js';
 import { makeMockAskWikiTransport } from './hooks/mockAskWikiTransport.js';
 import { makeMockCheckpointTransport } from './hooks/mockCheckpointTransport.js';
 import { makeMockEventsTransport } from './hooks/mockEventsTransport.js';
@@ -39,6 +40,7 @@ import { useFinalReview, type FinalReviewTransport } from './hooks/useFinalRevie
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { usePlanList, type PlanListTransport } from './hooks/usePlanList.js';
 import { useRunSnapshot, type RunSnapshotTransport } from './hooks/useRunSnapshot.js';
+import { useWorkspace } from './hooks/useWorkspace.js';
 import { useCurrentPanel, type Panel, PANELS, navigate } from './router.js';
 import { cn } from './lib/utils.js';
 import { isTauri } from './lib/tauriRuntime.js';
@@ -86,14 +88,18 @@ interface StatusPanelProps {
   activeRunId: string | null;
   transport: RunSnapshotTransport;
   onSubmit: (goal: string) => void;
+  /** Tauri-only: when no workspace is selected we render a folder
+   *  picker card instead of the GoalBox so the user can't submit a
+   *  goal that has nowhere to land. Browser mode passes null. */
+  workspaceCard?: ReactNode;
 }
 
-function StatusPanel({ activeRunId, transport, onSubmit }: StatusPanelProps) {
+function StatusPanel({ activeRunId, transport, onSubmit, workspaceCard }: StatusPanelProps) {
   const snapshot = useRunSnapshot(activeRunId, transport);
   if (!activeRunId || !snapshot) {
     return (
       <section className="flex h-[calc(100vh-4rem)] items-center justify-center">
-        <GoalBox onSubmit={onSubmit} />
+        {workspaceCard ?? <GoalBox onSubmit={onSubmit} />}
       </section>
     );
   }
@@ -175,6 +181,7 @@ export default function App({
   // transports. Browser (mock) transports stay the default outside
   // the desktop runtime so dev-mode + tests behave the same as before.
   const desktop = isTauri();
+  const workspace = useWorkspace();
   const resolvedTransport = useMemo(
     () =>
       transport ??
@@ -236,9 +243,30 @@ export default function App({
     [onGoal, desktop],
   );
 
+  // Tauri-only: block goal submission until a workspace is picked, by
+  // rendering the picker card in the GoalBox slot. Browser mode keeps
+  // the GoalBox so demo/dev flows continue to work without a folder.
+  const workspaceCard =
+    desktop && !workspace.path && !workspace.loading ? (
+      <WorkspaceBanner
+        path={workspace.path}
+        loading={workspace.loading}
+        error={workspace.error}
+        onPick={() => {
+          void workspace.pick();
+        }}
+        variant="card"
+      />
+    ) : null;
+
   const panels: Record<Panel, ReactNode> = {
     status: (
-      <StatusPanel activeRunId={activeRunId} transport={resolvedTransport} onSubmit={handleGoal} />
+      <StatusPanel
+        activeRunId={activeRunId}
+        transport={resolvedTransport}
+        onSubmit={handleGoal}
+        {...(workspaceCard !== null ? { workspaceCard } : {})}
+      />
     ),
     checkpoints: (
       <CheckpointsPanel activeRunId={activeRunId} transport={resolvedCheckpointTransport} />
@@ -256,6 +284,17 @@ export default function App({
           <span className="text-caption text-text-500">v0.1</span>
         </div>
         <div className="flex items-center gap-3">
+          {desktop ? (
+            <WorkspaceBanner
+              path={workspace.path}
+              loading={workspace.loading}
+              error={workspace.error}
+              onPick={() => {
+                void workspace.pick();
+              }}
+              variant="chip"
+            />
+          ) : null}
           <Nav active={panel} />
           <button
             type="button"

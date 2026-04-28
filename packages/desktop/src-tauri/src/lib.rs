@@ -12,6 +12,8 @@ mod workspace;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use tauri::Manager;
+use tauri_plugin_dialog::DialogExt;
 
 #[derive(Serialize)]
 struct DesktopInfo {
@@ -42,9 +44,19 @@ struct WorkspaceSetResult {
 }
 
 #[tauri::command]
-fn workspace_set(args: WorkspaceSetArgs) -> Result<WorkspaceSetResult, String> {
+fn workspace_set(
+    app: tauri::AppHandle,
+    args: WorkspaceSetArgs,
+) -> Result<WorkspaceSetResult, String> {
     let path = PathBuf::from(args.path);
+    if !workspace::is_beaver_project(&path) {
+        return Err(format!(
+            "{} doesn't look like a Beaver project (missing .beaver/ subdir)",
+            path.display()
+        ));
+    }
     workspace::set_workspace(path.clone()).map_err(|e| e.to_string())?;
+    persist_active_workspace(&app, &path);
     Ok(WorkspaceSetResult {
         path: path.display().to_string(),
     })
@@ -53,6 +65,55 @@ fn workspace_set(args: WorkspaceSetArgs) -> Result<WorkspaceSetResult, String> {
 #[tauri::command]
 fn workspace_get() -> Option<String> {
     workspace::get_workspace().map(|p| p.display().to_string())
+}
+
+#[derive(Serialize)]
+struct WorkspacePickResult {
+    path: Option<String>,
+}
+
+/// Open the OS folder picker; on selection, validate `.beaver/`, set
+/// the in-memory workspace, and persist the path. Returns the chosen
+/// path (or None when the user cancelled the dialog).
+#[tauri::command]
+async fn workspace_pick(app: tauri::AppHandle) -> Result<WorkspacePickResult, String> {
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Select a Beaver project folder")
+        .blocking_pick_folder();
+    let Some(file_path) = picked else {
+        return Ok(WorkspacePickResult { path: None });
+    };
+    let path = file_path
+        .into_path()
+        .map_err(|e| format!("invalid folder path: {e}"))?;
+    if !workspace::is_beaver_project(&path) {
+        return Err(format!(
+            "{} doesn't look like a Beaver project. Run `beaver init` there first.",
+            path.display()
+        ));
+    }
+    workspace::set_workspace(path.clone()).map_err(|e| e.to_string())?;
+    persist_active_workspace(&app, &path);
+    Ok(WorkspacePickResult {
+        path: Some(path.display().to_string()),
+    })
+}
+
+/// Best-effort persist; failures are logged but do not bubble up
+/// because the in-memory selection is already honoured for this run.
+fn persist_active_workspace(app: &tauri::AppHandle, path: &std::path::Path) {
+    let Ok(config_dir) = app.path().app_config_dir() else {
+        log::warn!("workspace persist: no app_config_dir resolvable");
+        return;
+    };
+    if let Err(err) = workspace::write_persisted_workspace(&config_dir, path) {
+        log::warn!(
+            "workspace persist: failed to write to {}: {err}",
+            config_dir.display()
+        );
+    }
 }
 
 #[tauri::command]
@@ -94,6 +155,7 @@ fn plans_list(args: db::PlansListArgs) -> Result<Vec<db::PlanRow>, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -102,12 +164,22 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            // W.12.7 — restore the previously-selected workspace from
+            // the app config dir (if any). Failure is non-fatal; the
+            // picker UI handles the empty case.
+            if let Ok(config_dir) = app.handle().path().app_config_dir() {
+                let restored = workspace::restore_persisted_workspace(&config_dir);
+                if let Some(path) = restored {
+                    log::info!("restored workspace: {}", path.display());
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             desktop_info,
             workspace_set,
             workspace_get,
+            workspace_pick,
             runs_start,
             runs_get,
             checkpoints_list,
