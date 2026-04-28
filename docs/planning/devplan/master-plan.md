@@ -39,7 +39,7 @@ Order of execution (top to bottom). Each sprint is its own branch (`dev/<id>-…
 | 9   | 4D.2    | Tauri invoke wiring (CLI sidecar replaces mocks)       | partial     |
 | 10  | 4D.3    | Release CI scaffold (tag → tauri build → artifact)     | shipped     |
 | 11  | 4D.4    | Cross-OS matrix (ubuntu/macos/windows) + AppImage/dmg  | shipped     |
-| 12  | 9       | Real-API mode toggle (partial — OS sandbox deferred)   | queued      |
+| 12  | 9       | Real-API mode toggle (partial — OS sandbox deferred)   | partial     |
 | 13  | review  | Final 5-loop multi-perspective review + fixes          | queued      |
 
 ---
