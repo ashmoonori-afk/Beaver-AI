@@ -10,6 +10,96 @@ function seedFor(runId: string): CheckpointSummary[] {
   const now = new Date().toISOString();
   return [
     {
+      id: `${runId}-cp-refine`,
+      runId,
+      kind: 'goal-refinement',
+      prompt: 'Approve the enriched goal + PRD + MVP, or comment to amend any section.',
+      postedAt: now,
+      refinement: {
+        rawGoal: 'build a todo app',
+        enrichedGoal:
+          'TypeScript + React + Vite TODO app with email/password auth and SQLite persistence. Single-user, desktop only. CRUD on tasks with done/undone toggle.',
+        assumptions: [
+          'no mobile / web-multi-device sync in v0.1',
+          'single-user (one local SQLite file per workspace)',
+          'no real-time collaboration',
+        ],
+        questions: [],
+        clarifyingQuestions: [
+          {
+            id: 'Q1',
+            text: 'Which auth model should we ship?',
+            options: [
+              { label: 'A', value: 'email + password (local hash)' },
+              { label: 'B', value: 'OS-level session (no auth)' },
+              { label: 'C', value: 'magic link via SMTP' },
+            ],
+          },
+          {
+            id: 'Q2',
+            text: 'How should completed tasks behave?',
+            options: [
+              { label: 'A', value: 'kept inline, struck-through' },
+              { label: 'B', value: 'archived to a separate view' },
+              { label: 'C', value: 'auto-deleted after 30 days' },
+            ],
+          },
+        ],
+        prd: {
+          overview:
+            'A minimal TODO app for local single-user productivity. Tasks live in a SQLite file under the user’s workspace and survive crashes via WAL mode.',
+          goals: [
+            'create / edit / delete a task in <100 ms',
+            'mark tasks done with one click or keyboard shortcut',
+            'persist across app restarts without data loss',
+          ],
+          userStories: [
+            {
+              id: 'US-001',
+              title: 'Create a task',
+              description:
+                'As a user, I want to type a task and press Enter so that it appears immediately.',
+              acceptanceCriteria: [
+                'Empty input rejected with inline message',
+                'Newly created task is persisted to SQLite before the UI clears',
+                'Cursor returns to the input on success',
+              ],
+            },
+            {
+              id: 'US-002',
+              title: 'Toggle done state',
+              description: 'As a user, I want to click a checkbox so that the task is marked done.',
+              acceptanceCriteria: [
+                'Click toggles in <100 ms',
+                'Done state persists across reload',
+                'Strike-through visible only for done tasks',
+              ],
+            },
+          ],
+          nonGoals: [
+            'no multi-device sync',
+            'no shared / multi-user lists',
+            'no calendar / due-date features in v0.1',
+          ],
+          successMetrics: [
+            'all unit + integration tests pass',
+            'manual smoke: 50 tasks created without UI lag',
+            'data survives a forced kill-and-restart',
+          ],
+        },
+        mvp: {
+          pitch: 'A keyboard-first single-user TODO app that just works offline.',
+          features: ['create / edit / delete task', 'toggle done', 'persist to local SQLite'],
+          deferred: [
+            'auth (treat single user as the OS session for v0.1)',
+            'tagging / categories',
+            'bulk import from markdown',
+          ],
+          scope: '~3 days · no auth · no sync',
+        },
+      },
+    },
+    {
       id: `${runId}-cp-plan`,
       runId,
       kind: 'plan-approval',

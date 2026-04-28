@@ -20,7 +20,7 @@ export function CheckpointCard({ checkpoint, onAnswer }: CheckpointCardProps) {
       className="flex flex-col gap-3 rounded-card bg-surface-800 px-5 py-4"
     >
       {checkpoint.hint ? <HintLine hint={checkpoint.hint} /> : null}
-      <Body checkpoint={checkpoint} />
+      <Body checkpoint={checkpoint} onAnswer={onAnswer} />
       <Actions checkpoint={checkpoint} onAnswer={onAnswer} />
     </article>
   );

@@ -10,6 +10,11 @@ import type { CheckpointKind, CheckpointSummary } from '../types.js';
 
 export interface CheckpointBodyProps {
   checkpoint: CheckpointSummary;
+  /** W.10 — kinds that want to surface in-body actions (e.g.
+   *  goal-refinement's per-section "suggest edit" buttons that post a
+   *  `comment:[section] …` reply) get the same submitter the Actions
+   *  component uses. Most bodies ignore it and render purely. */
+  onAnswer?: (id: string, response: string) => Promise<void>;
 }
 
 export interface CheckpointActionsProps {

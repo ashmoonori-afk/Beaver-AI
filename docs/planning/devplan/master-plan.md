@@ -41,6 +41,7 @@ Order of execution (top to bottom). Each sprint is its own branch (`dev/<id>-…
 | 11  | 4D.4    | Cross-OS matrix (ubuntu/macos/windows) + AppImage/dmg  | shipped     |
 | 12  | 9       | Real-API mode toggle (partial — OS sandbox deferred)   | partial     |
 | 13  | review  | Final 5-loop multi-perspective review + fixes          | shipped     |
+| 14  | W.10    | Ralph-inspired PRD/MVP refinement + AGENTS.md          | shipped     |
 
 ---
 

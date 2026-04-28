@@ -97,7 +97,11 @@ export interface CheckpointHint {
   sourcePages: string[];
 }
 
-/** Phase 7: structured payload that goes with a `goal-refinement` checkpoint. */
+/** Phase 7: structured payload that goes with a `goal-refinement` checkpoint.
+ *  Phase W.10 (Ralph-inspired): adds optional `clarifyingQuestions`
+ *  (lettered-option style for "1A, 2C, 3B" quick replies) + structured
+ *  `prd` + `mvp` so the user reviews + nudges a real spec rather than
+ *  a free-text paragraph. */
 export interface GoalRefinement {
   /** What the user typed verbatim. */
   rawGoal: string;
@@ -105,8 +109,65 @@ export interface GoalRefinement {
   enrichedGoal: string;
   /** Bullet list of assumptions the planner made while enriching. */
   assumptions: readonly string[];
-  /** Optional clarifying questions; empty array means "auto-approve OK". */
+  /** Free-form clarifying questions (legacy / fallback). */
   questions: readonly string[];
+  /** W.10 — multi-choice clarifying questions. Empty/undefined when
+   *  the planner is confident enough to skip. */
+  clarifyingQuestions?: readonly ClarifyingQuestion[];
+  /** W.10 — structured PRD. */
+  prd?: PRD;
+  /** W.10 — minimum viable subset of the PRD. */
+  mvp?: MVP;
+}
+
+/** A single clarifying question with lettered options (Ralph pattern).
+ *  User can reply quickly with e.g. "Q1: B". */
+export interface ClarifyingQuestion {
+  /** Stable id for routing per-question replies — typically "Q1", "Q2". */
+  id: string;
+  text: string;
+  options: ReadonlyArray<ClarifyingOption>;
+}
+
+export interface ClarifyingOption {
+  /** "A" | "B" | "C" | … */
+  label: string;
+  /** Concrete answer text the planner can act on. */
+  value: string;
+}
+
+/** Acceptance-criteria-bearing user story per Ralph PRD skill. */
+export interface UserStory {
+  id: string;
+  title: string;
+  /** "As a <user>, I want <feature> so that <benefit>" sentence. */
+  description: string;
+  acceptanceCriteria: readonly string[];
+}
+
+/** Product Requirements Document — Ralph-inspired structure. */
+export interface PRD {
+  /** One-paragraph overview of the feature. */
+  overview: string;
+  /** Specific, measurable goals. */
+  goals: readonly string[];
+  userStories: readonly UserStory[];
+  /** What this explicitly will NOT do. */
+  nonGoals: readonly string[];
+  /** Verifiable signals that the feature is shipped. */
+  successMetrics: readonly string[];
+}
+
+/** Minimum viable subset of the PRD — first cut to ship. */
+export interface MVP {
+  /** One-sentence elevator pitch. */
+  pitch: string;
+  /** Smallest feature set that delivers user value. */
+  features: readonly string[];
+  /** PRD goals/features explicitly deferred past v0.1. */
+  deferred: readonly string[];
+  /** Time + scope budget (e.g. "2 weeks · single-user · no auth"). */
+  scope: string;
 }
 
 export interface CheckpointSummary {
