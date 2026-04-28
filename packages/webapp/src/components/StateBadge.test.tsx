@@ -34,4 +34,10 @@ describe('<StateBadge />', () => {
     const node = screen.getByLabelText(/Run state: COMPLETED/i);
     expect(node.className).toMatch(/bg-accent-500/);
   });
+
+  it('renders the REFINING_GOAL state (Phase 7)', () => {
+    render(<StateBadge state="REFINING_GOAL" />);
+    expect(screen.getByLabelText(/Run state: REFINING_GOAL/i)).toBeInTheDocument();
+    expect(screen.getByText('REFINING_GOAL')).toBeInTheDocument();
+  });
 });

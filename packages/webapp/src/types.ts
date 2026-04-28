@@ -5,6 +5,7 @@
 
 export type RunState =
   | 'INITIALIZED'
+  | 'REFINING_GOAL'
   | 'PLANNING'
   | 'EXECUTING'
   | 'REVIEWING'
@@ -48,6 +49,7 @@ export const TERMINAL_RUN_STATES: ReadonlySet<RunState> = new Set([
 
 export const CHECKPOINT_KINDS = [
   'goal-clarification',
+  'goal-refinement',
   'plan-approval',
   'risky-change-confirmation',
   'merge-conflict',
@@ -66,6 +68,18 @@ export interface CheckpointHint {
   sourcePages: string[];
 }
 
+/** Phase 7: structured payload that goes with a `goal-refinement` checkpoint. */
+export interface GoalRefinement {
+  /** What the user typed verbatim. */
+  rawGoal: string;
+  /** Planner's enriched draft. */
+  enrichedGoal: string;
+  /** Bullet list of assumptions the planner made while enriching. */
+  assumptions: readonly string[];
+  /** Optional clarifying questions; empty array means "auto-approve OK". */
+  questions: readonly string[];
+}
+
 export interface CheckpointSummary {
   id: string;
   runId: string;
@@ -76,6 +90,8 @@ export interface CheckpointSummary {
   postedAt: string;
   /** Optional wiki hint surfaced via `HintLine` (W.4 / 4U.5). */
   hint?: CheckpointHint;
+  /** Phase 7: present only when kind === 'goal-refinement'. */
+  refinement?: GoalRefinement;
 }
 
 /** A row of a plan version (W.5 / 4U.4). Same compact list the CLI renders. */

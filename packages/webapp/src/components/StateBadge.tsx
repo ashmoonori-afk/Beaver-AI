@@ -6,6 +6,7 @@ import type { RunState } from '../types.js';
 
 const STATE_CLASS: Record<RunState, string> = {
   INITIALIZED: 'bg-surface-700 text-text-300',
+  REFINING_GOAL: 'bg-accent-700 text-text-50',
   PLANNING: 'bg-accent-700 text-text-50',
   EXECUTING: 'bg-accent-500 text-surface-900',
   REVIEWING: 'bg-accent-700 text-text-50',
@@ -17,6 +18,7 @@ const STATE_CLASS: Record<RunState, string> = {
 
 const STATE_GLYPH: Record<RunState, string> = {
   INITIALIZED: '·',
+  REFINING_GOAL: '?',
   PLANNING: '✎',
   EXECUTING: '▶',
   REVIEWING: '?',
