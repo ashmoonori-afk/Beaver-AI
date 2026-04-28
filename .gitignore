@@ -42,3 +42,8 @@ runs/
 
 # User-facing generated outputs from launcher runs
 OUTPUT/
+
+# Tauri / Cargo build artifacts (4D.1)
+# (Cargo.lock IS tracked — beaver-desktop is a binary app, not a library)
+packages/desktop/src-tauri/target/
+packages/desktop/src-tauri/gen/schemas/

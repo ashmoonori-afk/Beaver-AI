@@ -1,50 +1,42 @@
 #!/bin/bash
-# Beaver AI launcher (macOS). Double-click to run (.command extension is
-# Finder-recognised). Equivalent: Start-Beaver.bat (Windows), Start-Beaver.sh (Linux).
+# Beaver AI launcher (macOS / Phase 4D.1).
+#
+# Replaces the terminal CLI prompt with the Tauri desktop shell. On
+# first run this builds the desktop binary (~5 min, one-off); on
+# subsequent runs the .app boots in <200 ms.
+#
+# Pre-built .dmg lives at packages/desktop/src-tauri/target/release/bundle/dmg/
+# once `pnpm --filter @beaver-ai/desktop tauri build` has run. Distribute
+# the .dmg to end users so they don't need pnpm + Rust.
+#
+# Legacy CLI launcher (terminal prompt) preserved at Start-Beaver-CLI.command.
 
 set -e
 cd "$(dirname "$0")"
 
-# Pin the provider to claude-code by default. Codex is opt-in (export
-# BEAVER_PROVIDER=codex before launching) — keeps runs working when the
-# local Codex / OpenAI account hits its usage cap.
-: "${BEAVER_PROVIDER:=claude-code}"
-export BEAVER_PROVIDER
+APP_BUNDLE="packages/desktop/src-tauri/target/release/bundle/macos/Beaver.app"
+APP_BINARY="packages/desktop/src-tauri/target/release/beaver-desktop"
 
-echo "Beaver AI v0.1"
-echo "Provider: $BEAVER_PROVIDER"
-echo
-
-if [ ! -d node_modules ]; then
-  echo "node_modules missing. Running pnpm install..."
+if [ ! -d "$APP_BUNDLE" ] && [ ! -x "$APP_BINARY" ]; then
+  echo "Building Beaver desktop app for first run..."
+  echo "This is a one-time build (~5 min)."
   if ! command -v pnpm >/dev/null 2>&1; then
-    echo "pnpm not found. Install from https://pnpm.io and re-run."
-    read -n 1 -r -p "Press any key to exit..."
+    echo "pnpm not found. Install from https://pnpm.io and re-run." >&2
     exit 1
   fi
-  pnpm install
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "cargo not found. Install from https://rustup.rs and re-run." >&2
+    exit 1
+  fi
+  if ! pnpm --filter @beaver-ai/desktop tauri build; then
+    echo
+    echo "Desktop build failed. Falling back to the legacy CLI launcher."
+    exec ./Start-Beaver-CLI.command
+  fi
 fi
 
-if [ ! -d .beaver ]; then
-  echo "Initializing .beaver/ ..."
-  node --import=tsx packages/cli/src/bin.ts init
+if [ -d "$APP_BUNDLE" ]; then
+  open "$APP_BUNDLE"
+else
+  exec "$APP_BINARY"
 fi
-
-# Strip inner double quotes the user may have typed (cmd-style habit)
-
-read -r -p "What should Beaver do? " GOAL
-GOAL="${GOAL//\"/}"
-if [ -z "$GOAL" ]; then
-  echo "No goal provided. Exiting."
-  read -n 1 -r -p "Press any key to exit..."
-  exit 1
-fi
-
-echo
-echo "Running: node packages/cli/src/bin.ts run --no-server \"$GOAL\""
-echo
-
-node --import=tsx packages/cli/src/bin.ts run --no-server "$GOAL"
-
-echo
-read -n 1 -r -p "Press any key to close..."

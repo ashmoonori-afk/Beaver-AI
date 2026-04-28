@@ -1,0 +1,16 @@
+{
+  "name": "@beaver-ai/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Beaver AI desktop shell — Tauri v2 wrapping the React UI from Phase 4U (D17)",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.4.0"
+  }
+}

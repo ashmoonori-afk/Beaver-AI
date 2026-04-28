@@ -2,7 +2,7 @@
 
 > Fully autonomous local development orchestrator. Drives **Claude Code + Codex** agents through `plan → execute → review → integrate` loops with strong policy guardrails (sandbox, USD budget, hooks). Pauses only at well-defined human checkpoints.
 
-[![ci](https://github.com/ashmoonori-afk/Beaver-AI-Dev/actions/workflows/ci.yml/badge.svg)](https://github.com/ashmoonori-afk/Beaver-AI-Dev/actions/workflows/ci.yml) · 388 tests · 81 source files · MIT
+[![ci](https://github.com/ashmoonori-afk/Beaver-AI-Dev/actions/workflows/ci.yml/badge.svg)](https://github.com/ashmoonori-afk/Beaver-AI-Dev/actions/workflows/ci.yml) · 581 tests · 231 source files · MIT
 
 ---
 
@@ -20,7 +20,7 @@ A user types one goal:
 node --import=tsx packages/cli/src/bin.ts run --no-server "Build a TypeScript TODO app with auth"
 ```
 
-…and Beaver:
+…or **double-clicks the desktop launcher**, and Beaver:
 
 1. Plans the work as a versioned DAG of tasks
 2. Spawns specialized agents (each in its own git worktree, on its own branch)
@@ -38,12 +38,15 @@ The 5 v0.1 exit criteria — all satisfiable on a fresh checkout:
 
 ---
 
-## Architecture (six layers)
+## Architecture (seven layers)
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  Entry Layer            beaver CLI    │    import { Beaver } │
+│  Entry Layer            beaver CLI    │   Desktop (Tauri)*   │
 │                         /beaver slash command (plugin)       │
+├──────────────────────────────────────────────────────────────┤
+│  Renderer (React)       Bento status · Checkpoints · Plan    │
+│                         Logs · Final review · Wiki · Help    │
 ├──────────────────────────────────────────────────────────────┤
 │  Orchestrator           PLANNING → EXECUTING → REVIEWING     │
 │  (the "meta-agent")     → FINAL_REVIEW_PENDING → COMPLETED   │
@@ -53,20 +56,20 @@ The 5 v0.1 exit criteria — all satisfiable on a fresh checkout:
 │                         Stall watchdog · Cost/budget guard   │
 ├──────────────────────────────────────────────────────────────┤
 │  Provider Adapters      ClaudeCodeAdapter │ CodexAdapter     │
-│                         Unified ProviderAdapter interface    │
+│                         Auto-fallback on usage-limit         │
 ├──────────────────────────────────────────────────────────────┤
 │  Workspace & State      Git worktrees · SQLite (WAL)         │
 │                         10 tables · 9 typed DAOs             │
 ├──────────────────────────────────────────────────────────────┤
-│  Feedback Channel       Terminal prompts · Web dashboard*    │
+│  Feedback Channel       Terminal prompts · Desktop UI        │
 │                         Notifications · Wiki hints           │
 └──────────────────────────────────────────────────────────────┘
-                                              * web UI deferred to v0.2
+                                              * Tauri shell: 4D.1 in progress
 ```
 
 Full layer docs: [`docs/architecture/overview.md`](./docs/architecture/overview.md).
 
-### Locked decisions (D1–D16)
+### Locked decisions (D1–D17)
 
 See [`docs/decisions/locked.md`](./docs/decisions/locked.md). Highlights:
 
@@ -77,7 +80,8 @@ See [`docs/decisions/locked.md`](./docs/decisions/locked.md). Highlights:
 - **D10** Bounded parallel (5) · max 2 retries · CLI-only providers · 120 s stall watchdog
 - **D14** Wiki system: LLM-maintained markdown KB at `<config>/wiki/`, suggest-only
 - **D15** Agent baseline: bundled `AGENT_BASELINE.md` injected as the first layer of every agent's system prompt
-- **D16** App UI tech stack (Fastify + React) — built but not wired into v0.1
+- **D16** App UI tech stack: React + Vite + Tailwind, hash-routed SPA
+- **D17** Desktop shell: **Tauri v2** wrapping the React UI from Phase 4U, with a bundled Node sidecar. Self-signed cert, GitHub Releases, `node-sea` sidecar (Phase 4D.0 lock)
 
 ---
 
@@ -90,6 +94,7 @@ Prerequisites:
 - **git**
 - **Claude Code CLI** (`npm i -g @anthropic-ai/claude-code`)
 - **Codex CLI** (`npm i -g @openai/codex`)
+- **Rust + Cargo** (only for desktop builds — [rustup.rs](https://rustup.rs/))
 
 ```bash
 git clone https://github.com/ashmoonori-afk/Beaver-AI-Dev.git
@@ -101,9 +106,25 @@ pnpm install
 
 ## Execution
 
-Three equivalent ways to run a goal — pick whichever fits your workflow.
+Four equivalent ways to run a goal — pick whichever fits your workflow.
 
-### 1. Double-click launcher (no terminal)
+### 1. Desktop app (Phase 4D — replaces the .bat launcher)
+
+The Tauri-based desktop shell wraps the redesigned bento UI in a native Win64 / macOS / Linux executable. Double-click to launch — no terminal, no browser tab.
+
+```bash
+# Dev mode (auto-reloads on file change):
+pnpm --filter @beaver-ai/desktop tauri dev
+
+# Production build (Win64 .msi + .exe / macOS .dmg / Linux .AppImage):
+pnpm --filter @beaver-ai/desktop tauri build
+```
+
+The 4D.1 sprint scaffolds the shell + Windows installer. The 4D.2 sprint replaces the in-process mock transports with real Tauri `invoke` commands (CLI sidecar). Until 4D.2 lands the desktop UI runs against the demo fixtures.
+
+### 2. Double-click launcher (legacy, terminal)
+
+The Phase 0 launcher scripts are kept while 4D rolls out — they prompt for a goal in a terminal and shell out to the CLI. Once the Tauri build is signed and shipped, these will be replaced.
 
 | Platform | File                                         |
 | -------- | -------------------------------------------- |
@@ -111,9 +132,7 @@ Three equivalent ways to run a goal — pick whichever fits your workflow.
 | macOS    | `Start-Beaver.command` (chmod +x first time) |
 | Linux    | `Start-Beaver.sh` (chmod +x first time)      |
 
-Each launcher: auto-installs deps if missing → `beaver init` if `.beaver/` is absent → prompts you for a goal → runs it.
-
-### 2. Claude Code plugin
+### 3. Claude Code plugin
 
 ```
 .claude-plugin/
@@ -133,7 +152,7 @@ Drop the `.claude-plugin/` directory into Claude Code's plugin path. Then in any
 
 Or just ask Claude in plain English ("can you run beaver on this?") and the `beaver-runner` skill auto-activates.
 
-### 3. CLI (terminal)
+### 4. CLI (terminal)
 
 ```bash
 node --import=tsx packages/cli/src/bin.ts <subcommand>
@@ -149,6 +168,25 @@ node --import=tsx packages/cli/src/bin.ts <subcommand>
 | `answer <id> approve\|reject\|comment <text>` | Reply to a checkpoint                                                 |
 | `resume <run-id>`                             | Recover a paused / crashed run from disk                              |
 | `abort <run-id>`                              | Stop a run                                                            |
+
+---
+
+## UI surface (Phase 4U — shipped)
+
+Six panels behind hash routes (`#status`, `#checkpoints`, `#plan`, `#logs`, `#review`, `#wiki`). React + Vite + Tailwind, dark by default, single-accent palette (emerald), 4U.6 a11y polish (axe-core gated):
+
+| Panel              | Purpose                                                                                                                                                                                                                                            |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status (Bento)** | 4-card grid (state · spent vs cap · elapsed · open checkpoints) + agents row. Empty state shows the GoalBox                                                                                                                                        |
+| **Checkpoints**    | Per-kind cards: plan-approval / risky-change / final-review (Approve/Comment/Reject), goal-clarification / merge-conflict / escalation (free-form), budget-exceeded (Stop / Increase / Continue once). Wiki `[hint]` line above body when relevant |
+| **Plan**           | Latest-version card + version dropdown; older versions dim the rest of the screen                                                                                                                                                                  |
+| **Logs**           | Virtualized event list (`@tanstack/react-virtual`) + level filter chips + `--json` NDJSON toggle                                                                                                                                                   |
+| **Review**         | Hero card: branches (BranchPill, copy-on-click) + diff-stat sparklines + `final-report.md` (sanitized via `react-markdown` + `rehype-sanitize`). Approve / Discard with confirm modal                                                              |
+| **Wiki**           | Single textarea Q&A — `useAskWiki` hook (debounced 250 ms) + citations panel. Empty-wiki short-circuit                                                                                                                                             |
+
+Keyboard shortcuts: `r` status · `c` checkpoints · `p` plan · `l` logs · `v` review · `w` wiki · `?` help dialog · `Esc` close any modal.
+
+Per-run snapshot flow uses 6 single-shape data hooks (`useRunSnapshot`, `useCheckpoints`, `useEvents`, `usePlanList`, `useFinalReview`, `useAskWiki`) each with an injectable transport. Browser builds use mock transports; the Tauri shell (4D.2) swaps them for `invoke()` calls without touching components.
 
 ---
 
@@ -189,9 +227,11 @@ Two entry points:
 | Per-task USD cap          | Default $3; refuses to spawn next agent if a retry would exceed                                                                                                               |
 | Per-run USD cap           | Default $20; hard-cap pauses run + posts `budget-exceeded` checkpoint (`stop` / `increase` / `continue-once`)                                                                 |
 | Worktree write boundary   | Agent writes outside its `git worktree` flagged → require-confirmation. Codex shim bypass (absolute paths) caught by post-run filesystem audit (`agent.shell.bypass-attempt`) |
+| Provider fallback         | Claude usage-limit / rate-limit / quota → auto-retry on Codex (and vice-versa). Anti-loop guard. `BEAVER_NO_FALLBACK=1` to opt out                                            |
 | Crash recovery            | WAL-mode SQLite. Every state transition is an append-only event. `beaver resume <run-id>` replays                                                                             |
 | Hang detection            | Wall-clock per role (planner 5 min … coder 30 min) + 120 s output-stall watchdog                                                                                              |
 | Hook fail-closed          | Sandbox hook errors (DB unreachable, etc.) return `deny` — never fail-open                                                                                                    |
+| UI a11y                   | axe-core gated in CI on every panel + dialog (4U.6 review gate)                                                                                                               |
 
 ---
 
@@ -199,34 +239,47 @@ Two entry points:
 
 ```
 .
-├── .claude-plugin/             # Claude Code plugin manifest + skills + commands
-├── Start-Beaver.{bat,command,sh}  # double-click launchers
-├── docs/                       # architecture + decisions + models + planning
-│   ├── INDEX.md                # documentation map
-│   ├── architecture/           # 6-layer architecture
-│   ├── decisions/locked.md     # D1–D16
-│   ├── models/                 # cost-budget, plan-format, sandbox-policy, ...
-│   └── planning/devplan/       # phase 0–6 sprint specs + sprint-log.md
+├── .claude-plugin/                # Claude Code plugin manifest + skills + commands
+├── Start-Beaver.{bat,command,sh}  # legacy launcher scripts (replaced by Tauri shell in 4D.1)
+├── docs/                          # architecture + decisions + models + planning
+│   ├── INDEX.md                   # documentation map
+│   ├── architecture/              # 7-layer architecture
+│   ├── decisions/locked.md        # D1–D17
+│   ├── models/                    # cost-budget, plan-format, sandbox-policy, ...
+│   └── planning/devplan/          # phase 0–4D sprint specs + sprint-log.md
 └── packages/
-    ├── core/                   # @beaver-ai/core (private workspace)
+    ├── core/                      # @beaver-ai/core
     │   └── src/
-    │       ├── types/          # zod schemas (provider, plan, budget, ...)
-    │       ├── plan/           # PlanSchema + DAG cycle helper
-    │       ├── budget/         # USD cap schema + cost helper
-    │       ├── workspace/      # SQLite + 9 DAOs
-    │       ├── sandbox/        # classifier + classify-cli
+    │       ├── types/             # zod schemas (provider, plan, budget, ...)
+    │       ├── plan/              # PlanSchema + DAG cycle helper
+    │       ├── budget/            # USD cap schema + cost helper
+    │       ├── workspace/         # SQLite + 9 DAOs
+    │       ├── sandbox/           # classifier + classify-cli
     │       ├── providers/
-    │       │   ├── _shared/    # spawn + kill (reused by both adapters)
-    │       │   ├── claude-code/  # adapter + parse + protocol + hook
-    │       │   ├── codex/      # adapter + parse + protocol + shim + audit
-    │       │   └── _test/      # mock-cli + JSON fixtures
-    │       ├── orchestrator/   # FSM + loop + LLM sub-decisions
-    │       ├── agent-runtime/  # worktree + lifecycle + stall watchdog
-    │       ├── agent-baseline/ # AGENT_BASELINE.md + role addenda + render
-    │       ├── feedback/       # checkpoint primitive + wiki-query
-    │       └── wiki/           # bootstrap + ingest + askWiki / queryWiki
-    ├── cli/                    # @beaver-ai/cli — bin.ts + commands + renderers
-    └── beaver-ai/              # the published meta-package (Beaver class)
+    │       │   ├── _shared/       # spawn + kill (reused by both adapters)
+    │       │   ├── claude-code/   # adapter + parse + protocol + hook
+    │       │   ├── codex/         # adapter + parse + protocol + shim + audit
+    │       │   └── _test/         # mock-cli + JSON fixtures
+    │       ├── orchestrator/      # FSM + loop + LLM sub-decisions + provider fallback
+    │       ├── agent-runtime/     # worktree + lifecycle + stall watchdog
+    │       ├── agent-baseline/    # AGENT_BASELINE.md + role addenda + render
+    │       ├── feedback/          # checkpoint primitive + wiki-query
+    │       └── wiki/              # bootstrap + ingest + askWiki / queryWiki
+    ├── cli/                       # @beaver-ai/cli — bin.ts + commands + renderers
+    ├── server/                    # @beaver-ai/server (Fastify, --server mode)
+    ├── webapp/                    # @beaver-ai/webapp — Phase 4U React UI
+    │   └── src/
+    │       ├── components/        # Bento, AgentCard, Cost/State/Elapsed,
+    │       │                      # CheckpointCard, CheckpointPanel,
+    │       │                      # PlanPanel, LogsPanel, ReviewPanel,
+    │       │                      # WikiSearch, HelpDialog, ModalShell, ...
+    │       ├── checkpoints/       # per-kind body modules + actions + registry + HintLine
+    │       ├── hooks/             # 6 single-shape data hooks + 6 mock transports
+    │       ├── lib/               # buttonClasses + cn() utility
+    │       └── styles/            # tokens + reduced-motion media query
+    ├── desktop/                   # @beaver-ai/desktop — Phase 4D Tauri shell (4D.1)
+    │   └── src-tauri/             # Rust crate + tauri.conf.json + capabilities
+    └── beaver-ai/                 # the published meta-package (Beaver class)
 ```
 
 ---
@@ -235,26 +288,45 @@ Two entry points:
 
 ```bash
 pnpm install
-pnpm test                                 # 388 tests
-pnpm lint                                 # eslint flat config
-pnpm format:check                         # prettier
-pnpm -r exec tsc --noEmit                 # strict TS
-pnpm dlx madge@latest --circular packages/core/src --extensions ts
+pnpm test                                                         # 581 tests
+pnpm lint                                                         # eslint flat config
+pnpm format:check                                                 # prettier
+pnpm -r exec tsc --noEmit                                         # strict TS
+pnpm dlx madge@latest --circular packages --extensions ts,tsx     # 0 cycles
+pnpm --filter @beaver-ai/webapp build                             # ≤ 250 KB gz
 ```
 
 Sprint conventions in [`docs/planning/devplan/conventions.md`](./docs/planning/devplan/conventions.md). Every sprint must pass three exit gates: **spaghetti** (architectural integrity) · **bug** (functional verification) · **review** (D15 baseline applied to ourselves).
+
+Phase 4U review pass (W.8) ran 5 parallel multi-perspective reviews (spaghetti, security, bug/edge, test coverage, architecture) and applied the HIGH/MEDIUM findings before proceeding to 4D. DoD verified by 5x consecutive `pnpm test` runs (0 flakes).
 
 Sprint history in [`docs/planning/devplan/sprint-log.md`](./docs/planning/devplan/sprint-log.md).
 
 ---
 
-## What's not in v0.1 (carried to v0.2)
+## Phase status
 
-- **Web UI** (Fastify + React) — manifests + tech stack locked (D13/D16) but the bundle isn't wired in v0.1. CLI surface is sufficient for the launcher.
-- **Adapter base-class refactor** — ClaudeCodeAdapter and CodexAdapter share ~80 lines of run-loop structure. Will extract `runProviderLoop(adapter, providerSpec)` once a 3rd adapter exists.
-- **Real-LLM integration test gate** — current tests use mock-cli for determinism; CI does not spend USD.
-- **Bundled hook / classify-cli** — currently spawned via `tsx`; production publish should bundle into a single .js per script.
-- **OS-level sandbox** (`sandbox-exec` on macOS, `bubblewrap` on Linux) — Codex shim is "audited policy boundary, not a hard sandbox" (per D9). v0.2 hardening adds the OS layer.
+| Phase              | Status         | Notes                                                                    |
+| ------------------ | -------------- | ------------------------------------------------------------------------ |
+| 0 — Foundations    | ✅ shipped     | repo · core types · DAO · sandbox                                        |
+| 1 — Providers      | ✅ shipped     | Claude Code adapter + Codex adapter + auto-fallback + PreToolUse hook    |
+| 2 — Orchestrator   | ✅ shipped     | FSM + agent runtime + budget guard                                       |
+| 3 — CLI            | ✅ shipped     | `init` / `run` / `status` / `logs` / `checkpoints` / `answer` / `resume` |
+| 4 — Server         | ✅ shipped     | Fastify + SSE (legacy `--server` mode)                                   |
+| 4U — UI redesign   | ✅ shipped     | W.1–W.7 + W.8 review pass                                                |
+| 4D — Desktop shell | 🚧 in progress | 4D.0 sub-decisions locked; 4D.1 scaffold this branch                     |
+| 5 — Wiki           | ✅ shipped     | bootstrap + ingest + askWiki + queryWiki                                 |
+| 6 — MVP exit       | ✅ shipped     | integration loop + audit + packaging (Claude plugin manifest)            |
+
+---
+
+## What's deferred to v0.2
+
+- **Tauri 4D.2–4D.5** — invoke wiring for the 6 transports, signed Win64 .msi installer, macOS .dmg notarization, Linux .AppImage, file association
+- **Light-mode theme** (4U.7) — Tailwind tokens are dark-only by default; light theme deferred to tail
+- **Adapter base-class refactor** — ClaudeCodeAdapter and CodexAdapter share ~80 lines of run-loop structure. Will extract `runProviderLoop(adapter, providerSpec)` once a 3rd adapter exists
+- **Real-LLM integration test gate** — current tests use mock-cli for determinism; CI does not spend USD
+- **OS-level sandbox** (`sandbox-exec` on macOS, `bubblewrap` on Linux) — Codex shim is "audited policy boundary, not a hard sandbox" (per D9). v0.2 hardening adds the OS layer
 
 ---
 

@@ -2,6 +2,206 @@
 
 > Append-only record of completed sprints. One entry per sprint.
 
+## [2026-04-28] 4D.1 — Tauri desktop shell scaffold + Windows build
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- Goal: replace the terminal-prompt launcher (Start-Beaver.bat/.command/.sh)
+  with a native double-clickable executable that opens directly in the
+  Phase 4U bento UI.
+- New package `@beaver-ai/desktop` at `packages/desktop/`. Tauri v2
+  scaffold via `pnpm exec tauri init --ci` with productName=Beaver,
+  identifier=ai.beaver.desktop, frontendDist pointing at
+  `packages/webapp/dist`, and beforeBuildCommand running the existing
+  webapp Vite build. Window: 1280×800 (min 960×600), centered,
+  decorated, transparent=false, shadow=true.
+- Rust crate at `src-tauri/`:
+  * `lib.rs` exposes one Tauri command — `desktop_info` returning
+    `{ version, target_os, debug }`. Smoke-tests the IPC bridge so
+    4D.2 can extend with `runs_start`, `checkpoints_answer`, etc.
+    along the same shape.
+  * `Cargo.toml` renamed from `app` → `beaver-desktop`; lib name
+    `beaver_desktop_lib`. License MIT, repo URL set.
+- Production build verified locally on Windows:
+  * `beaver-desktop.exe` standalone — 8.6 MB
+  * `Beaver_0.1.0_x64_en-US.msi` — 3.2 MB
+  * `Beaver_0.1.0_x64-setup.exe` (NSIS) — 2.3 MB
+- Legacy launchers preserved as `Start-Beaver-CLI.{bat,command,sh}`
+  for headless / SSH workflows. `Start-Beaver.{bat,command,sh}` now:
+  1. Probe for the built desktop binary
+  2. If missing, run `pnpm --filter @beaver-ai/desktop tauri build`
+  3. Launch the binary (or fall back to the CLI variant on build
+     failure)
+- `.gitignore` updated to exclude `target/` and `gen/schemas/` but
+  KEEP `Cargo.lock` tracked (binary app, reproducible builds).
+- New `packages/desktop/README.md` documents layout, dev/build, IPC
+  command surface, and the 4D.2 invoke commands still pending.
+- Deferred (explicit): 4D.2 transport invokes, code signing
+  (self-signed cert per 4D.0 lock), GitHub Releases CI, macOS
+  notarization, Linux .AppImage.
+
+## [2026-04-28] W.8 — 5-loop review pass + DoD stability
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- 5 parallel review agents ran against W.3–W.7 (spaghetti, security,
+  bug/edge, test coverage, architecture). Aggregated HIGH/MEDIUM
+  findings applied; LOW deferred (move enums to core, split actions.tsx,
+  add AbortSignal to all RPC verbs).
+- Modularization deltas:
+  * `lib/buttonClasses.ts` — single source of truth for PRIMARY /
+    SECONDARY / DESTRUCTIVE class strings. Was duplicated across 4
+    files (actions.tsx, ConfirmDiscardModal, ReviewPanel, HelpDialog)
+    with silent style drift on focus rings (some had ring-offset, some
+    didn't).
+  * `components/ModalShell.tsx` — backdrop + Esc + click-outside +
+    initialFocusRef boilerplate extracted. ConfirmDiscardModal and
+    HelpDialog now share the shell instead of duplicating it verbatim.
+  * `App.tsx` panel dispatch: 6-arm ternary chain replaced by
+    `Record<Panel, ReactNode>` lookup so a missing panel is now a
+    compile-time hole (`PanelStub` removed).
+- Bug fixes:
+  * ReviewPanel: setConfirming(false) only on success — modal stays
+    open on rejection so the user can retry. `busy` plumbed to the
+    confirm modal so the Discard button disables during in-flight
+    discard.
+  * useAskWiki: ac.signal.aborted check before setting `loading`
+    closes a stale-flash race when debounceMs collapses to 0. Error
+    messages capped at 200 chars before reaching the DOM (stops a
+    leaked stack trace from blowing up layout).
+  * mockFinalReviewTransport: second decide() for the same runId
+    rejects with "already decided" — matches what the real Tauri/server
+    transport will do.
+  * useRunSnapshot / useEvents / usePlanList / useFinalReview /
+    useCheckpoints: setState reset at the top of effect so a stale
+    snapshot/list is never visible across runId or transport changes.
+  * LogsPanel: scrollTop=0 on filter change so a deep scrollTop
+    doesn't outrun the new (smaller) totalSize and render a blank pane
+    (TanStack Virtual gotcha).
+  * actions.tsx submit() now returns boolean; ApproveActions clears
+    the comment textarea + collapses the Comment panel only on
+    success; FreeFormActions clears its textarea only on success.
+  * App.tsx: makeRunId() prefers crypto.randomUUID() over
+    Math.random() for real entropy on the IPC key.
+- Test additions (13 new, 187 total in webapp):
+  * ModalShell × 5 (aria-labelledby, Esc, backdrop, body, focus)
+  * ConfirmDiscardModal busy-disabled
+  * ReviewPanel modal-stays-open-on-rejection
+  * mockFinalReviewTransport second-decide-rejects
+  * useEvents / useFinalReview unmount-cleanup
+  * useAskWiki unmount-mid-debounce + long-error-truncation
+  * LogsPanel JSON-dump-respects-filter
+- DoD verification: 5 consecutive `pnpm test` runs locally — all green.
+  Tests: 581 passed | 1 skipped (101 files). 0 flakes.
+- Pre-existing core test (`run-with-mock-cli` 100-replay loop)
+  bumped from 30 s to 60 s timeout: 100 sequential child-process
+  spawns are 3-5× slower on Windows than on Linux CI. Test was passing
+  on CI but failing locally on slower Windows hosts.
+
+## [2026-04-27] W.7 / 4U.6 — motion + a11y polish
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- prefers-reduced-motion already honored at the CSS layer — verified
+  in global.css.
+- New `useKeyboardShortcuts` hook owns a SHORTCUTS data table (no
+  `if (key === X)` cascade): r=status / c=checkpoints / p=plan /
+  l=logs / v=review / w=wiki / ?=help. Ignores keys typed into
+  inputs/textareas and Cmd/Ctrl/Alt-modified keys (so Cmd+R reload
+  still works).
+- HelpDialog opens via `?` key OR header "?" button. Lists every
+  documented shortcut + Esc=close convention. Esc + click-backdrop
+  close; close button auto-focuses on mount; aria-modal +
+  aria-labelledby wired.
+- New axe-core test suite (a11y.test.tsx) renders App + every panel +
+  every dialog and asserts zero violations. color-contrast and region
+  rules disabled (jsdom has no layout engine — those rules need
+  browser). All 8 axe runs green: App / Plan / Logs / Checkpoints /
+  Review / Wiki / Help / ConfirmDiscard.
+- Tests added: 26 (174 total in webapp).
+
+## [2026-04-27] W.6 / 4U.5 — wiki Q&A panel
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- New `#wiki` route. Single textarea + citation list. Calls askWiki
+  via an injectable transport — hook never builds prompts itself.
+- `useAskWiki` (debounced 250 ms) state machine: idle / loading /
+  ready / error. AbortController cancels in-flight requests when the
+  question changes or the component unmounts.
+- Empty-state copy on idle; "no relevant entry yet" short-circuit
+  when the wiki is empty (server returns empty=true so the LLM never
+  fires); "(truncated)" marker on clipped excerpts; toast on transport
+  error.
+- Citation paths and excerpts render as plain text — no XSS via
+  crafted page filenames or HTML in excerpts (verified by injecting
+  &lt;script&gt; / &lt;img onerror&gt; in the test).
+- Tests added: 14 (148 total in webapp).
+
+## [2026-04-27] W.5 / 4U.4 — plan / logs / final review
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- Three remaining run-time panels:
+  * `#plan` — latest-version card by default; thin <select> dropdown
+    switches to historical versions and dims the rest of the screen.
+    Same compact list the CLI renders.
+  * `#logs` — virtualized event list via @tanstack/react-virtual
+    (one library, no hand-rolled windowing). Filter chips above (All /
+    Info / Warn / Error / Debug); aria-pressed carries selection.
+    `--json` toggle replaces the row view with a <pre><code> NDJSON
+    dump.
+  * `#review` — hero card: BranchPill (copy-on-click) + diff-stat
+    sparklines + final-report.md rendered with react-markdown +
+    rehype-sanitize. <script> in markdown renders as text — no
+    dangerouslySetInnerHTML anywhere.
+- Three new hooks (one per data shape): usePlanList, useEvents,
+  useFinalReview. Three matching mock transports.
+- ConfirmDiscardModal handles the destructive Discard path (Esc +
+  click-outside cancel; focus on Discard button; aria-modal).
+- Tests added: 47 (134 total in webapp).
+
+## [2026-04-27] W.4 / 4U.3 — CheckpointCard panel
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- 7 kind-specific body modules (one file each, all <30 lines, no
+  `if (kind === 'X')` cascades — registry pattern enforced by spec).
+- 3 reusable Actions shapes: ApproveActions (approve/comment/reject),
+  FreeFormActions (textarea+send), BudgetActions (stop/increase/
+  continue-once).
+- CHECKPOINT_REGISTRY lookup picked up by &lt;CheckpointCard /&gt;.
+- HintLine renders the optional wiki-sourced `[hint]` line above body.
+- useCheckpoints(runId, transport) symmetric to useRunSnapshot.
+- Mock transport seeds plan-approval + budget-exceeded; answer()
+  removes the row and re-emits.
+- 44 px hit areas, focus-visible rings, aria-labels, double-submit
+  guard, error toast on rejection.
+- Tests added: 35 (89 total in webapp).
+
+## [2026-04-27] W.3 / 4U.2 — bento status grid
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- 4-card bento (StateBadge / CostTicker / ElapsedClock /
+  OpenCheckpoints chip) + agents row, CSS-grid only, no library.
+- Single-shape RunSnapshot + injectable RunSnapshotTransport so 4D.2
+  can swap to the Tauri event bus without component edits.
+- Mock transport walks PLANNING → EXECUTING → COMPLETED at 1500 ms
+  ticks for the demo.
+- App swaps GoalBox for Bento once a goal is submitted (transport
+  prop is the test seam).
+- Tests added: 37 (57 total in webapp).
+
+## [2026-04-27] W.2 / 4U.1 — GoalBox empty state
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- Cmd/Ctrl+Enter submit; auto-grow textarea (480 px max); 200 ms
+  fade-up animation on mount; focus on mount; "Beaver is idle" copy.
+
+## [2026-04-26] W.1 / 4U.0 — webapp scaffold + design tokens
+
+- exit tests: spaghetti ✓ · bug ✓ · review ✓
+- Vite + React + Tailwind + shadcn-style `cn()` helper.
+- Hash router (no library, ~30 lines): #status / #checkpoints / #plan
+  / #logs / #review / #wiki.
+- Design tokens: emerald accent on slate surface, type scale
+  (hero/body/caption), 200 ms ease-out transition default,
+  Pretendard → Apple SD Gothic Neo → Malgun Gothic font stack.
+
 ## [2026-04-27] P6 + Final — Integration loop, audit, packaging
 
 - exit tests: spaghetti ✓ · bug ✓ · review ✓

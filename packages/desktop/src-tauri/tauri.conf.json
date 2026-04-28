@@ -1,0 +1,47 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Beaver",
+  "version": "0.1.0",
+  "identifier": "ai.beaver.desktop",
+  "build": {
+    "frontendDist": "../../webapp/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "pnpm --filter @beaver-ai/webapp dev --port 5173",
+    "beforeBuildCommand": "pnpm --filter @beaver-ai/webapp build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Beaver AI",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "decorations": true,
+        "transparent": false,
+        "shadow": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "Beaver AI desktop shell",
+    "longDescription": "Beaver AI — autonomous local development orchestrator. Drives Claude Code + Codex agents through plan -> execute -> review -> integrate loops with strong policy guardrails (sandbox, USD budget, hooks).",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

@@ -3,7 +3,7 @@
 > Map of all project documents. Each file is a single-purpose, LLM-friendly chunk (target ≤ ~150 lines).
 
 **Project:** Beaver AI — fully autonomous development orchestrator
-**Last updated:** 2026-04-26 (devplan added under planning/devplan/)
+**Last updated:** 2026-04-28 (Phase 4U complete · 4D.1 in progress)
 **Reading order for newcomers:** [overview](overview.md) → [decisions/locked](decisions/locked.md) → [architecture/overview](architecture/overview.md) → drill into individual layers as needed.
 
 ---
@@ -12,7 +12,7 @@
 - [overview.md](overview.md) — One-page elevator pitch and project goals.
 
 ## Decisions
-- [decisions/locked.md](decisions/locked.md) — D1–D8: locked architectural decisions with rationale.
+- [decisions/locked.md](decisions/locked.md) — D1–D17: locked architectural decisions with rationale.
 - [decisions/open-questions.md](decisions/open-questions.md) — Q3, Q4, Q6, Q7: open questions still to resolve before MVP.
 
 ## Architecture
@@ -46,6 +46,9 @@
 - [planning/next-steps.md](planning/next-steps.md) — High-level work queue (a thin pointer into the devplan).
 - [planning/devplan/README.md](planning/devplan/README.md) — Phase / sprint / task breakdown of the v0.1 MVP build.
 - [planning/devplan/conventions.md](planning/devplan/conventions.md) — Sprint structure and the three exit-tests every sprint must pass.
+- [planning/devplan/phase-4u-ui-redesign.md](planning/devplan/phase-4u-ui-redesign.md) — UI redesign (Lovable-referenced); W.1–W.7 shipped + W.8 review pass.
+- [planning/devplan/phase-4d-desktop-app.md](planning/devplan/phase-4d-desktop-app.md) — Desktop shell (Tauri v2); 4D.0 sub-decisions locked, 4D.1 scaffold in progress.
+- [planning/devplan/sprint-log.md](planning/devplan/sprint-log.md) — Append-only record of completed sprints.
 
 ---
 
