@@ -58,6 +58,13 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     // stream-json --verbose to emit one JSONL event per line. Tests inject
     // `cliPath = process.execPath` + `defaultArgs = [mockCliPath, fixturePath]`
     // and the explicit defaultArgs override these production defaults.
+    // v0.2.2 — BEAVER_CLAUDE_EXTRA_ARGS escape hatch mirrors the
+    // codex adapter's. Useful when a fresh workspace needs
+    // `--add-dir <path>` or version-specific flags without a code
+    // change.
+    const extraEnvArgs = (process.env['BEAVER_CLAUDE_EXTRA_ARGS'] ?? '')
+      .split(/\s+/)
+      .filter((s) => s.length > 0);
     const args =
       this.opts.defaultArgs !== undefined
         ? [...this.opts.defaultArgs]
@@ -68,6 +75,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
             '--verbose',
             '--permission-mode',
             'acceptEdits',
+            ...extraEnvArgs,
           ];
     // Production path: pass the prompt as the last positional arg
     // (Claude `claude --print "<prompt>"` accepts it). Test path: defaultArgs

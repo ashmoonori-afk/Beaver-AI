@@ -72,8 +72,29 @@ export class CodexAdapter implements ProviderAdapter {
     // the prompt as the last positional arg. Tests inject defaultArgs
     // (mock-cli + fixture) and that path bypasses these production defaults.
     const productionMode = this.opts.defaultArgs === undefined;
+    // v0.2.2 — `--skip-git-check` and `--ask-for-approval never`
+    // surface as no-ops on older codex builds but on recent releases
+    // they suppress the "trust this directory? [y/N]" prompt that
+    // was hanging beaver runs in a fresh workspace. The escape hatch
+    // BEAVER_CODEX_EXTRA_ARGS (space-separated) lets users append
+    // any version-specific flag (e.g.
+    // `--dangerously-bypass-approvals-and-sandbox`) without a code
+    // change.
+    const extraEnvArgs = (process.env['BEAVER_CODEX_EXTRA_ARGS'] ?? '')
+      .split(/\s+/)
+      .filter((s) => s.length > 0);
     const args = productionMode
-      ? ['exec', '--json', '--full-auto', '--sandbox', 'workspace-write']
+      ? [
+          'exec',
+          '--json',
+          '--full-auto',
+          '--ask-for-approval',
+          'never',
+          '--skip-git-check',
+          '--sandbox',
+          'workspace-write',
+          ...extraEnvArgs,
+        ]
       : [...(this.opts.defaultArgs ?? [])];
     const transcriptPath = path.join(opts.workdir, '.beaver-transcript.jsonl');
 

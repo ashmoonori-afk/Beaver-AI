@@ -75,6 +75,12 @@ export interface BeaverOptions {
    *  after one coder call. Restores v0.1 always-accept behaviour for
    *  benchmarking + escape hatch when the reviewer is misbehaving. */
   alwaysAccept?: boolean;
+  /** v0.2.2 — when true (or env BEAVER_AUTO_CONFIRM_REFINEMENT=1),
+   *  the orchestrator skips the goal-refinement checkpoint when the
+   *  refiner returns ready=true. Default: undefined → mirrors
+   *  `autoApproveFinalReview` (programmatic Beaver().run() callers
+   *  get hands-off; CLI/desktop wait for an explicit user Confirm). */
+  autoConfirmReadyRefinement?: boolean;
   /** Stream raw agent events to callers such as the CLI. */
   onAgentEvent?: (event: AgentEvent) => void;
   /** W.12.4 — explicit refiner. When omitted, the env var BEAVER_REFINER
@@ -314,6 +320,11 @@ export class Beaver {
       // autoApproveFinalReview=false) leave plan-approval for the user.
       const autoApprovePlan =
         this.opts.autoApprovePlan ?? this.opts.autoApproveFinalReview !== false;
+      // v0.2.2 — same split for the goal-refinement auto-confirm
+      // gate. CLI/desktop default to interactive (false); the
+      // convenience API stays hands-off (true).
+      const autoConfirmReadyRefinement =
+        this.opts.autoConfirmReadyRefinement ?? this.opts.autoApproveFinalReview !== false;
       const autoAnswerCancel =
         this.opts.autoApproveFinalReview === false
           ? null
@@ -387,6 +398,7 @@ export class Beaver {
           maxParallelTasks,
           repoRoot: this.rootPath,
           autoApprovePlan,
+          autoConfirmReadyRefinement,
           ...(wikiQuery !== undefined ? { wikiQuery } : {}),
           runPrdDispatch,
           // Sprint A — bump from 30 s to 30 min so a human reading the

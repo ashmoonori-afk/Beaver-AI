@@ -16,7 +16,7 @@
 
 > Fully autonomous local development orchestrator. Drives **Claude Code + Codex** agents through `plan → execute → review → integrate` loops with strong policy guardrails (sandbox, USD budget, hooks). Pauses only at well-defined human checkpoints.
 
-[![release](https://github.com/ashmoonori-afk/Beaver-AI/actions/workflows/release.yml/badge.svg)](https://github.com/ashmoonori-afk/Beaver-AI/releases/latest) · MIT
+[![ci](https://github.com/ashmoonori-afk/Beaver-AI-Dev/actions/workflows/ci.yml/badge.svg)](https://github.com/ashmoonori-afk/Beaver-AI-Dev/actions/workflows/ci.yml) · 1,000 tests · MIT
 
 ---
 
@@ -64,6 +64,10 @@ A focused polish pass that turned v0.1's "it works" into a Lovable-grade desktop
 
 ### Headline features
 
+<!-- TODO: replace with a real screenshot of the Bento + cost breakdown panel -->
+
+![Status panel — Bento + Spend by phase](docs/screenshots/status-panel.png)
+
 - **Multi-task INTEGRATING with parallel worktrees.** `BEAVER_MAX_PARALLEL_TASKS=5` by default. Each task runs in `.beaver/worktrees/<runId>/<taskId>` on its own branch, with strict `dependsOn` (a child waits until its parents have _integrated_, not just finished). Sequential mode (`=1`) keeps the v0.1 single-worktree path bit-for-bit.
 - **Real reviewer agent** with three verdicts: `accept` / `retry` (capped at 1) / `escalate` (posts a checkpoint).
 - **Live diff preview** before final-review approval — see what the agent did in unified-diff form.
@@ -72,6 +76,10 @@ A focused polish pass that turned v0.1's "it works" into a Lovable-grade desktop
 - **Strengthened sandbox classifier**: 22 patterns total. New: `dd of=/dev/sd*`, `> /etc/`, `mkfs|fdisk|parted|wipefs`, `chmod 777`, `eval $(curl …)`, `base64 -d | sh`.
 
 ### UI polish
+
+<!-- TODO: replace with screenshots of: onboarding dialog, wiki browse, help dialog -->
+
+![Onboarding dialog](docs/screenshots/onboarding.png) ![Wiki browse](docs/screenshots/wiki-browse.png)
 
 - **First-run onboarding** — 3-step welcome dialog (explain → pick workspace → first goal). Skipped on subsequent launches.
 - **Live progress indicators** — pulsing accent dot on the StateBadge for non-terminal states and on AgentCard rows that are currently running.
@@ -387,6 +395,7 @@ Two entry points:
 
 ```bash
 pnpm install
+pnpm test                                                         # 903 tests (132 files)
 pnpm lint                                                         # eslint flat config
 pnpm format:check                                                 # prettier
 pnpm -r exec tsc --noEmit                                         # strict TS

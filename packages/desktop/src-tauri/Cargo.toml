@@ -1,6 +1,6 @@
 [package]
 name = "beaver-desktop"
-version = "0.2.1"
+version = "0.2.2"
 description = "Beaver AI desktop shell — Tauri v2 wrapping the React UI from Phase 4U"
 authors = ["Beaver AI contributors"]
 license = "MIT"

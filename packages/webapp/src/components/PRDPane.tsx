@@ -17,6 +17,7 @@ import { PRIMARY, SECONDARY } from '../lib/buttonClasses.js';
 import { cn } from '../lib/utils.js';
 import { usePrdDraft } from '../hooks/usePrdDraft.js';
 import { useCheckpoints, type CheckpointTransport } from '../hooks/useCheckpoints.js';
+import { useRunSnapshot, type RunSnapshotTransport } from '../hooks/useRunSnapshot.js';
 
 const SAVE_DEBOUNCE_MS = 500;
 
@@ -32,6 +33,14 @@ const NOOP_TRANSPORT: CheckpointTransport = {
   },
 };
 
+const NOOP_SNAPSHOT_TRANSPORT: RunSnapshotTransport = {
+  subscribe() {
+    return () => {};
+  },
+};
+
+const TERMINAL_STATES: ReadonlySet<string> = new Set(['COMPLETED', 'FAILED', 'ABORTED']);
+
 export interface PRDPaneProps {
   /** When false the hook stays idle (no IPC, no polling). The shell
    *  passes false in browser-dev mode so the PRDPane still renders
@@ -45,6 +54,11 @@ export interface PRDPaneProps {
    *  checkpoint. Wired to the same instance the Checkpoints panel
    *  uses (so answering here updates that panel too). */
   checkpointTransport?: CheckpointTransport;
+  /** v0.2.2 — when supplied, PRDPane shows a terminal-state banner
+   *  above the editor when the active run reaches COMPLETED /
+   *  FAILED / ABORTED, so users don't think the editor itself is
+   *  hung after a finished/failed run. */
+  runSnapshotTransport?: RunSnapshotTransport;
   /** Poll cadence (ms) for the draft hook. Defaults to the hook's
    *  built-in 1500 ms. Tests pass 0 to disable polling. */
   pollMs?: number;
@@ -55,8 +69,11 @@ export function PRDPane({
   pollMs,
   activeRunId,
   checkpointTransport,
+  runSnapshotTransport,
 }: PRDPaneProps) {
   const draft = usePrdDraft(enabled, pollMs !== undefined ? { pollMs } : undefined);
+  const snapshot = useRunSnapshot(activeRunId ?? null, runSnapshotTransport ?? NOOP_SNAPSHOT_TRANSPORT);
+  const isTerminal = snapshot ? TERMINAL_STATES.has(snapshot.state) : false;
   const [draftBody, setDraftBody] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'pending' | 'saved' | 'error'>('idle');
   const [confirmStatus, setConfirmStatus] = useState<'idle' | 'pending' | 'error'>('idle');
@@ -206,6 +223,9 @@ export function PRDPane({
         . Approve the goal-refinement checkpoint to freeze this draft into{' '}
         <code className="rounded bg-surface-800 px-1 text-text-300">prd.md</code>.
       </p>
+      {isTerminal && snapshot ? (
+        <TerminalStateBanner state={snapshot.state} />
+      ) : null}
       <label className="sr-only" htmlFor="prd-draft-textarea">
         PRD draft markdown
       </label>
@@ -266,6 +286,41 @@ function PrdStatusLabel({ status, existsOnDisk, hookError }: PrdStatusLabelProps
     <span className="text-caption text-text-500" data-testid="prd-status">
       {existsOnDisk ? 'On disk' : 'Empty'}
     </span>
+  );
+}
+
+interface TerminalStateBannerProps {
+  state: string;
+}
+
+/** v0.2.2 — when the active run is in a terminal state, surface that
+ *  on the PRD pane so users don't think the editor itself is hung.
+ *  The most common stuck-feeling case is FAILED with no Confirm button:
+ *  refiner returned ready=true (legacy auto-confirm path before v0.2.2)
+ *  and the coder/reviewer failed before the user got to interact. */
+function TerminalStateBanner({ state }: TerminalStateBannerProps) {
+  const tone = state === 'COMPLETED' ? 'accent' : 'danger';
+  const label =
+    state === 'COMPLETED'
+      ? 'This run finished successfully.'
+      : state === 'FAILED'
+        ? 'This run failed.'
+        : 'This run was aborted.';
+  return (
+    <div
+      className={
+        tone === 'accent'
+          ? 'rounded-card border border-accent-500/40 bg-accent-500/10 p-3'
+          : 'rounded-card border border-danger-500/40 bg-danger-500/10 p-3'
+      }
+      role="status"
+      data-testid="prd-terminal-banner"
+    >
+      <p className={tone === 'accent' ? 'text-caption text-accent-500' : 'text-caption text-danger-500'}>
+        {label} The editor below is read-only history; click{' '}
+        <strong>+ New run</strong> in the header to start over with this PRD as a starting point.
+      </p>
+    </div>
   );
 }
 

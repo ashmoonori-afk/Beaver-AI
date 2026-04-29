@@ -242,6 +242,7 @@ function HomePanel({
             enabled={desktop}
             activeRunId={activeRunId}
             checkpointTransport={checkpointTransport}
+            runSnapshotTransport={transport}
           />
         }
         right={
@@ -608,6 +609,7 @@ export default function App({
         enabled={desktop}
         activeRunId={activeRunId}
         checkpointTransport={resolvedCheckpointTransport}
+        runSnapshotTransport={resolvedTransport}
       />
     ),
     checkpoints: (

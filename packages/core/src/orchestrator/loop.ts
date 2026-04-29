@@ -166,6 +166,13 @@ export interface OrchestratorContext {
    *  Returns a DispatchResult; the orchestrator maps its outcome
    *  onto the FSM transitions. */
   runPrdDispatch?: (prdRunId: string, repoRoot: string) => Promise<DispatchResult>;
+  /** v0.2.2 — when true (or env BEAVER_AUTO_CONFIRM_REFINEMENT=1),
+   *  the orchestrator skips the goal-refinement checkpoint when the
+   *  refiner returns `ready: true`. Default false: even ready
+   *  refinements pause for an explicit user Confirm so the PRD pane
+   *  stays the gate, not just an output surface. Tests and the
+   *  programmatic Beaver().run() convenience API can flip it back on. */
+  autoConfirmReadyRefinement?: boolean;
 }
 
 export interface OrchestratorRunResult {
@@ -404,21 +411,27 @@ async function runGoalRefinement(
       void writePrdDraft(ctx.repoRoot, ctx.goal, refinement);
     }
 
-    if (refinement.ready) {
+    // v0.2.2 — even when the refiner self-approves with ready=true,
+    // pause for explicit user confirmation by default. Earlier
+    // releases auto-advanced here; that hid the PRD from the user
+    // because the goal-refinement checkpoint never appeared, and
+    // the run rolled straight into the v0.1 plan path with a
+    // fallback PRD that contained no real acceptance items.
+    //
+    // Opt-out: set `ctx.autoConfirmReadyRefinement = true` (or env
+    // BEAVER_AUTO_CONFIRM_REFINEMENT=1) to keep the legacy auto-skip.
+    // Test fixtures use the env override to stay non-interactive.
+    const autoConfirmReady =
+      ctx.autoConfirmReadyRefinement === true ||
+      process.env['BEAVER_AUTO_CONFIRM_REFINEMENT'] === '1';
+    if (refinement.ready && autoConfirmReady) {
       insertEvent(ctx.db, {
         run_id: ctx.runId,
         ts: now(),
         source: SOURCE,
         type: 'goal.refined',
-        payload_json: JSON.stringify({ iteration: i, ready: true }),
+        payload_json: JSON.stringify({ iteration: i, ready: true, autoConfirmed: true }),
       });
-      // v0.2 M1.5 — when the refiner self-approves (ready=true) we
-      // freeze the draft on its behalf so the PRD ledger and the
-      // on-disk prd.md stay consistent with the user-approve path.
-      // Skip the freeze for refinements that lack a real PRD object;
-      // those are v0.1-style trivial refiners (assumptions empty +
-      // no acceptance criteria) and freezing them would activate
-      // the PRD dispatcher for a no-op checklist.
       if (ctx.repoRoot && hasRealPrd(refinement)) {
         await tryFreezePrdAndLedger(ctx);
       }
