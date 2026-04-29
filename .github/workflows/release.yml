@@ -33,10 +33,11 @@ jobs:
             bundle_paths: |
               packages/desktop/src-tauri/target/release/bundle/deb/*.deb
               packages/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
-          - os: macos-13
-            target: macos
-            bundle_paths: |
-              packages/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          # macOS removed from the release repo's CI on 2026-04-30 —
+          # the queued macos-13 runner blocks the workflow from
+          # finalising while Apple-side notarization secrets are
+          # not configured for this repo. dev (Beaver-AI-Dev) keeps
+          # the macos-13 entry for build verification.
 
     steps:
       - uses: actions/checkout@v4
@@ -76,22 +77,9 @@ jobs:
       - run: pnpm --filter @beaver-ai/cli build
 
       - name: Tauri build (windows / linux)
-        if: matrix.target != 'macos'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm --filter @beaver-ai/desktop tauri build
-
-      - name: Tauri build (macOS — notarization secrets scoped here only)
-        if: matrix.target == 'macos'
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: pnpm --filter @beaver-ai/desktop tauri build
 
       - name: Upload artifacts to GitHub Release
