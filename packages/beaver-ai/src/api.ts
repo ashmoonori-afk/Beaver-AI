@@ -16,6 +16,9 @@ import {
   PlanSchema,
   answerCheckpoint,
   closeDb,
+  dispatchPrdTasks,
+  getRun,
+  listPlansByRun,
   insertEvent,
   insertProject,
   insertRate,
@@ -24,17 +27,23 @@ import {
   listPendingCheckpoints,
   makeLlmPlanner,
   makeLlmRefiner,
+  makeLlmReviewer,
+  makePrdReviewer,
   openDb,
   runMigrations,
   runOrchestrator,
+  wikiQueryFor,
   type AgentEvent,
   type Db,
+  type DispatchResult,
+  type ParentRunContext,
   type Plan,
   type Planner,
   type ProviderAdapter,
   type Refiner,
   type RunState,
   type Task,
+  type WikiQueryFn,
 } from '@beaver-ai/core';
 
 const DEFAULT_BEAVER_DIR = '.beaver';
@@ -51,6 +60,21 @@ export interface BeaverOptions {
   /** Auto-answer the final-review checkpoint with 'approve'. Default true
    *  for the library convenience API; CLI sets false and prompts the user. */
   autoApproveFinalReview?: boolean;
+  /** Sprint A — auto-answer the plan-approval checkpoint with 'approve'.
+   *  When undefined, follows `autoApproveFinalReview` so the CLI/desktop
+   *  default (which leaves final-review for the user) also leaves
+   *  plan-approval for the user. Set explicitly to override. The env
+   *  `BEAVER_AUTO_APPROVE_PLAN=1` always wins. */
+  autoApprovePlan?: boolean;
+  /** Sprint C — disable wiki-hint prepending on human-decision
+   *  checkpoints. When true (or env BEAVER_DISABLE_WIKI_HINTS=1), the
+   *  orchestrator skips wikiQuery and posts plain prompts. */
+  disableWikiHints?: boolean;
+  /** v0.2 M2.6 — when true (or env `BEAVER_ALWAYS_ACCEPT=1`), the
+   *  PRD dispatcher omits the reviewer and marks every task done
+   *  after one coder call. Restores v0.1 always-accept behaviour for
+   *  benchmarking + escape hatch when the reviewer is misbehaving. */
+  alwaysAccept?: boolean;
   /** Stream raw agent events to callers such as the CLI. */
   onAgentEvent?: (event: AgentEvent) => void;
   /** W.12.4 — explicit refiner. When omitted, the env var BEAVER_REFINER
@@ -68,6 +92,11 @@ export interface RunRequest {
   goal: string;
   /** Optional pre-built plan; if omitted a single-task stub plan is used. */
   plan?: Plan;
+  /** v0.1.1-C — when set, this run is a follow-up on a previous run.
+   *  The runner loads the parent's row + plan from SQLite and threads
+   *  it into the refiner/planner so they produce incremental edits
+   *  rather than starting over. */
+  parentRunId?: string;
 }
 
 export interface RunOutcome {
@@ -264,9 +293,70 @@ export class Beaver {
         this.opts.planner ??
         (process.env['BEAVER_PLANNER'] === 'llm' ? makeLlmPlanner({ adapter }) : undefined);
       const plan = planner ? undefined : (req.plan ?? stubPlanFor(req.goal));
+      // Phase 1-A — lazy reviewer factory. Built after the plan
+      // resolves so the reviewer has acceptance criteria in context.
+      // Auto-injected when BEAVER_REVIEWER=llm; opts.reviewer is the
+      // explicit override (no factory escape hatch since explicit
+      // reviewers don't need plan context).
+      const makeReviewer =
+        process.env['BEAVER_REVIEWER'] === 'llm'
+          ? (resolvedPlan: Plan) => {
+              const tasksById = new Map(resolvedPlan.tasks.map((t) => [t.id, t]));
+              return makeLlmReviewer({ adapter, tasksById });
+            }
+          : undefined;
 
+      // Sprint A — plan-approval auto-answer follows the same
+      // convenience-vs-interactive split as final-review. When the
+      // caller hasn't set `autoApprovePlan` explicitly, mirror
+      // `autoApproveFinalReview`: programmatic Beaver().run() callers
+      // get hands-off auto-approval; CLI/desktop (which set
+      // autoApproveFinalReview=false) leave plan-approval for the user.
+      const autoApprovePlan =
+        this.opts.autoApprovePlan ?? this.opts.autoApproveFinalReview !== false;
       const autoAnswerCancel =
-        this.opts.autoApproveFinalReview === false ? null : startAutoApprover(db, runId);
+        this.opts.autoApproveFinalReview === false
+          ? null
+          : startAutoApprover(db, runId, { autoApprovePlan });
+
+      // v0.1.1-C: load parent run context if requested. Best-effort —
+      // if the row or plan disappeared we still proceed without it.
+      const parentContext = req.parentRunId
+        ? await loadParentContext(db, req.parentRunId)
+        : undefined;
+
+      // Phase 2-A — concurrency lifted from BEAVER_MAX_PARALLEL_TASKS
+      // (default 1 = sequential, single-worktree path preserved).
+      // Values >1 enable per-task worktrees + sequential INTEGRATING
+      // merges into the user's working branch.
+      const maxParallelTasks = parseMaxParallelTasks(process.env['BEAVER_MAX_PARALLEL_TASKS']);
+
+      // Sprint C — wiki hint provider. Skipped when the user opted
+      // out (option / env), or when no wiki dir exists yet (queryWiki
+      // already returns "no info" silently in that case so we still
+      // wire it; the env switch is for users who want zero overhead).
+      const wikiQuery = this.resolveWikiQuery(adapter);
+
+      // v0.2 M2 — PRD dispatcher closure. The orchestrator only
+      // invokes this when a prd_runs row materialises mid-run (i.e.
+      // the user passed the M1.5 ConfirmGate). --always-accept
+      // (option or env BEAVER_ALWAYS_ACCEPT=1) drops the reviewer.
+      const alwaysAccept =
+        this.opts.alwaysAccept === true || process.env['BEAVER_ALWAYS_ACCEPT'] === '1';
+      const runPrdDispatch = async (
+        prdRunId: string,
+        repoRoot: string,
+      ): Promise<DispatchResult> => {
+        const reviewer = alwaysAccept ? undefined : makePrdReviewer({ adapter });
+        return dispatchPrdTasks({
+          db,
+          runId,
+          prdRunId,
+          repoRoot,
+          adapter,
+          ...(reviewer !== undefined ? { reviewer } : {}),
+        });
+      };
 
       try {
         const result = await runOrchestrator({
@@ -276,18 +366,35 @@ export class Beaver {
           ...(plan !== undefined ? { plan } : {}),
           ...(refiner !== undefined ? { refiner } : {}),
           ...(planner !== undefined ? { planner } : {}),
+          ...(makeReviewer !== undefined ? { makeReviewer } : {}),
+          ...(parentContext !== undefined ? { parentContext } : {}),
           // review-pass v0.1: previously this passed `req.goal` raw,
           // ignoring both the refiner's enrichedGoal and the planner's
           // per-task prompt. Use `task.prompt` (the agent-ready prompt
           // the planner crafted from PRD context) so refiner+planner
           // outputs actually drive execution.
-          executor: async (task) =>
+          //
+          // Phase 2-A: parallel mode passes a per-task `workdir` so
+          // each task runs in its own worktree. Sequential mode
+          // doesn't pass it; the agent runs in `this.rootPath` as
+          // before.
+          executor: async (task, opts) =>
             adapter.run({
               prompt: task.prompt,
-              workdir: this.rootPath,
+              workdir: opts?.workdir ?? this.rootPath,
               ...(this.opts.onAgentEvent !== undefined && { onEvent: this.opts.onAgentEvent }),
             }),
-          pollTimeoutMs: 30_000,
+          maxParallelTasks,
+          repoRoot: this.rootPath,
+          autoApprovePlan,
+          ...(wikiQuery !== undefined ? { wikiQuery } : {}),
+          runPrdDispatch,
+          // Sprint A — bump from 30 s to 30 min so a human reading the
+          // plan-approval / final-review prompt has realistic time to
+          // respond. Tests inject smaller values explicitly. The
+          // refiner already had its own 30-min cap; this brings the
+          // other human-decision waits in line.
+          pollTimeoutMs: 30 * 60 * 1000,
         });
         return { runId, finalState: result.finalState, provider };
       } finally {
@@ -336,6 +443,17 @@ export class Beaver {
     }
   }
 
+  /** Sprint C — build a wiki-hint closure for the orchestrator. Returns
+   *  `undefined` when wiki hints are disabled (option or env) so the
+   *  orchestrator's `prependWikiHint` short-circuits without overhead.
+   *  Otherwise binds `<rootPath>/.beaver/wiki` + the active adapter. */
+  private resolveWikiQuery(adapter: ProviderAdapter): WikiQueryFn | undefined {
+    if (this.opts.disableWikiHints === true) return undefined;
+    if (process.env['BEAVER_DISABLE_WIKI_HINTS'] === '1') return undefined;
+    const wikiRoot = path.join(this.rootPath, DEFAULT_BEAVER_DIR, 'wiki');
+    return wikiQueryFor(wikiRoot, adapter);
+  }
+
   private seedProjectAndRun(db: Db, runId: string, goal: string): void {
     // review-pass v0.1: derive projectId from a hash of the absolute
     // path so two clones of the same folder name in different parents
@@ -364,7 +482,13 @@ export class Beaver {
   }
 }
 
-function startAutoApprover(db: Db, runId: string): () => void {
+interface AutoApproverOptions {
+  /** Sprint A — when false, leave plan-approval checkpoints alone so
+   *  the user (CLI prompt or desktop UI) can answer them. */
+  autoApprovePlan: boolean;
+}
+
+function startAutoApprover(db: Db, runId: string, opts: AutoApproverOptions): () => void {
   // review-pass v0.1: previously, ANY DB error stopped the interval
   // permanently — a single SQLITE_BUSY would cause the orchestrator
   // to hang waiting for an auto-approval that would never come. Only
@@ -373,14 +497,15 @@ function startAutoApprover(db: Db, runId: string): () => void {
     try {
       const pending = listPendingCheckpoints(db, runId);
       for (const cp of pending) {
-        // Phase 7 — goal-refinement is approve-style; auto-approve it
-        // alongside plan-approval / final-review so headless runs don't
-        // hang when the planner posts a refinement diff.
-        if (
+        // Sprint A — plan-approval auto-answer is now opt-in via
+        // `opts.autoApprovePlan` (which mirrors autoApproveFinalReview
+        // by default). CLI/desktop leave it false so the orchestrator's
+        // explicit plan-approval gate waits for a real human answer.
+        const isAutoApprovable =
           cp.kind === 'final-review' ||
-          cp.kind === 'plan-approval' ||
-          cp.kind === 'goal-refinement'
-        ) {
+          cp.kind === 'goal-refinement' ||
+          (cp.kind === 'plan-approval' && opts.autoApprovePlan);
+        if (isAutoApprovable) {
           try {
             answerCheckpoint(db, cp.id, 'approve');
           } catch (innerErr) {
@@ -401,6 +526,57 @@ function startAutoApprover(db: Db, runId: string): () => void {
     }
   }, 100);
   return () => clearInterval(interval);
+}
+
+/** Cap on parent-plan JSON embedded in the planner/refiner prompt.
+ *  Plan files can be tens of KB; embedding verbatim into a prompt
+ *  silently eats the LLM's context window and hides truncation from
+ *  the user. 8 KB matches MAX_PAGE_CHARS in wiki/query.ts. */
+/** Phase 2-A — parse BEAVER_MAX_PARALLEL_TASKS into a sane integer.
+ *  Empty / unparseable / non-positive values fall back to 1 (sequential)
+ *  so a typo'd env var degrades gracefully rather than throwing. The
+ *  upper bound (16) avoids fork-bombing the host on huge plans. */
+function parseMaxParallelTasks(raw: string | undefined): number {
+  if (!raw) return 1;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return Math.min(16, n);
+}
+
+const MAX_PARENT_PLAN_JSON_BYTES = 8 * 1024;
+
+/** v0.1.1-C — load parent run context from SQLite for follow-up runs.
+ *  Returns undefined when the parent doesn't exist (logged but
+ *  non-fatal — the run continues as a normal first-time goal).
+ *  v0.1.1 review-pass: async readFile + size cap. */
+async function loadParentContext(
+  db: Db,
+  parentRunId: string,
+): Promise<ParentRunContext | undefined> {
+  const row = getRun(db, parentRunId);
+  if (!row) return undefined;
+  // listPlansByRun returns version ASC; take the last entry as the
+  // most recent revision of the parent run's plan.
+  const plans = listPlansByRun(db, parentRunId);
+  const latest = plans[plans.length - 1];
+  let planJson: string | null = null;
+  if (latest) {
+    try {
+      const buf = await fs.promises.readFile(latest.content_path, 'utf8');
+      planJson =
+        buf.length > MAX_PARENT_PLAN_JSON_BYTES
+          ? `${buf.slice(0, MAX_PARENT_PLAN_JSON_BYTES)}\n…[truncated; full plan was ${buf.length} bytes]`
+          : buf;
+    } catch {
+      // missing / unreadable / disappeared — fall through to null
+    }
+  }
+  return {
+    runId: row.id,
+    goal: row.goal,
+    finalState: row.status,
+    planJson,
+  };
 }
 
 /** True when the error indicates the DB handle is unrecoverable

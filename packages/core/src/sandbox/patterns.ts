@@ -66,8 +66,66 @@ export const PATTERNS: ReadonlyArray<Pattern> = [
     verdict: 'hard-deny',
     reason: 'obvious malice (fork bomb)',
   },
+  // Phase 2-B — block writes to host disks. We only catch writes
+  // (`of=/dev/sd…`); reading raw disks (`if=/dev/sd…`) is sometimes
+  // legitimate (taking an image) so it stays as `allow`. Device-name
+  // shapes are enumerated explicitly because `(sd|nvme)\b` would fail
+  // against `sda` (both `d` and `a` are word chars, no boundary).
+  {
+    id: 'dd-to-block-device',
+    regex:
+      /\bdd\s+(?:[a-z]+=\S+\s+)*of=\/dev\/(?:sd[a-z]\d*|nvme\d+n\d+(?:p\d+)?|hd[a-z]\d*|disk\d+(?:s\d+)?|mmcblk\d+(?:p\d+)?|loop\d*)/,
+    verdict: 'hard-deny',
+    reason: 'destroys a host block device (dd of=/dev/...)',
+  },
+  // Phase 2-B — redirecting stdout to system paths is almost always
+  // catastrophic (overwrite /etc/passwd, scribble on /proc, write to
+  // raw block devices). Both `>` (truncate) and `>>` (append) caught.
+  {
+    id: 'redirect-system-path',
+    regex:
+      />>?\s*\/(?:etc(?:\/|$|\s)|boot(?:\/|$|\s)|sys(?:\/|$|\s)|proc(?:\/|$|\s)|dev\/(?:sd[a-z]\d*|nvme\d+n\d+(?:p\d+)?|hd[a-z]\d*|disk\d+(?:s\d+)?|mmcblk\d+(?:p\d+)?|loop\d*))/,
+    verdict: 'hard-deny',
+    reason: 'redirect to a system path (overwrites os state)',
+  },
+  // Phase 2-B — partition / format tools that scribble on raw devices.
+  // Even with no args these prompt-and-then-destroy on real systems
+  // (mkfs without -f still asks; we deny anyway).
+  {
+    id: 'partition-tools',
+    regex: /^\s*(mkfs(\.\w+)?|fdisk|parted|wipefs|sgdisk)(\s|$)/,
+    verdict: 'hard-deny',
+    reason: 'partition / format tool (host-level destruction)',
+  },
 
   // ───── require-confirmation ─────
+
+  // Phase 2-B — chmod 777 (world-writable / world-executable). Almost
+  // never the right answer; the normal case `chmod +x build.sh` does
+  // not match (octal-only).
+  {
+    id: 'chmod-world-writable',
+    regex: /\bchmod\s+(?:-\S+\s+)*0?777\b/,
+    verdict: 'require-confirmation',
+    reason: 'world-writable / world-executable mode (chmod 777)',
+  },
+  // Phase 2-B — eval of remote-fetched output. Sister of the
+  // remote-code-pipe pattern; catches `eval "$(curl ...)"` and
+  // friends that the pipe regex misses.
+  {
+    id: 'eval-remote-code',
+    regex: /\beval\b[^|]*\$\(\s*(curl|wget)\b/,
+    verdict: 'require-confirmation',
+    reason: 'eval of remote-fetched output',
+  },
+  // Phase 2-B — base64-decoded payload piped into a shell. Common
+  // obfuscation for remote code execution.
+  {
+    id: 'base64-pipe-shell',
+    regex: /\bbase64\b[^|]*\|\s*(sh|bash|zsh|ksh)\b/,
+    verdict: 'require-confirmation',
+    reason: 'base64-decoded payload piped to shell (obfuscated remote exec)',
+  },
 
   {
     id: 'rm-wildcard',

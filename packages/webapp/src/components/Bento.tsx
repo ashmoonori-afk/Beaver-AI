@@ -2,12 +2,21 @@
 // CSS grid only — no library — per the locked stack.
 
 import { AgentCard } from './AgentCard.js';
+import { CostBreakdown } from './CostBreakdown.js';
 import { CostTicker } from './CostTicker.js';
 import { ElapsedClock } from './ElapsedClock.js';
 import { StateBadge } from './StateBadge.js';
-import type { RunSnapshot } from '../types.js';
+import type { CostBreakdownEntry, RunSnapshot } from '../types.js';
 
-export function Bento({ snapshot }: { snapshot: RunSnapshot }) {
+export interface BentoProps {
+  snapshot: RunSnapshot;
+  /** Phase 1-D — per-phase spend breakdown. Optional so existing tests
+   *  that don't exercise this section still pass; the section is
+   *  hidden when no entries are passed. */
+  costBreakdown?: readonly CostBreakdownEntry[];
+}
+
+export function Bento({ snapshot, costBreakdown }: BentoProps) {
   return (
     <div data-testid="bento" className="mx-auto w-full max-w-5xl space-y-6 py-6">
       {/* headline 4-card row */}
@@ -41,6 +50,10 @@ export function Bento({ snapshot }: { snapshot: RunSnapshot }) {
           </div>
         </Card>
       </div>
+
+      {/* Phase 1-D: spend-by-phase breakdown. Hidden when the parent
+          didn't wire a transport (browser-only tests). */}
+      {costBreakdown ? <CostBreakdown entries={costBreakdown} /> : null}
 
       {/* agents row */}
       <section data-testid="agents-row" className="space-y-2">

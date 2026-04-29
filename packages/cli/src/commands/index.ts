@@ -13,6 +13,7 @@ import { runRefine } from './refine.js';
 import { runResume } from './resume.js';
 import { runRun } from './run.js';
 import { runStatus } from './status.js';
+import { runWiki } from './wiki.js';
 
 export type CommandHandler = (args: string[]) => Promise<number>;
 
@@ -26,6 +27,7 @@ export const COMMANDS: Record<string, CommandHandler> = {
   answer: runAnswer,
   resume: runResume,
   abort: runAbort,
+  wiki: runWiki,
 };
 
 export const COMMAND_NAMES = Object.keys(COMMANDS);

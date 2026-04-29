@@ -60,6 +60,29 @@ const config: Config = {
         sans: ['Pretendard', '"Apple SD Gothic Neo"', '"Malgun Gothic"', 'system-ui', 'sans-serif'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
       },
+      // Phase 3-E — micro-interactions. Pure CSS keyframes (no
+      // framer-motion dep). All durations are short and respect the
+      // user's prefers-reduced-motion via Tailwind's `motion-safe:`
+      // variant on the consuming component.
+      keyframes: {
+        shake: {
+          '0%, 100%': { transform: 'translateX(0)' },
+          '20%': { transform: 'translateX(-3px)' },
+          '40%': { transform: 'translateX(3px)' },
+          '60%': { transform: 'translateX(-2px)' },
+          '80%': { transform: 'translateX(2px)' },
+        },
+        celebrate: {
+          '0%': { transform: 'scale(1)' },
+          '40%': { transform: 'scale(1.08)' },
+          '70%': { transform: 'scale(0.98)' },
+          '100%': { transform: 'scale(1)' },
+        },
+      },
+      animation: {
+        shake: 'shake 360ms cubic-bezier(0.36, 0.07, 0.19, 0.97)',
+        celebrate: 'celebrate 480ms cubic-bezier(0.16, 1, 0.3, 1)',
+      },
     },
   },
   plugins: [],

@@ -3,7 +3,7 @@
 // dispatches.
 
 import type { Plan } from '../plan/schema.js';
-import type { RefinementResult } from '../orchestrator/refiner.js';
+import type { ParentRunContext, RefinementResult } from '../orchestrator/refiner.js';
 
 const SYSTEM = `You are Beaver's planner. Given a Product Requirements
 Document (PRD) plus the user's enriched goal, produce a JSON Plan that
@@ -49,6 +49,10 @@ export interface BuildPlannerPromptInput {
   rawGoal: string;
   enrichedGoal: string;
   refinement?: RefinementResult;
+  /** v0.1.1-C — when this run is a follow-up, the parent run's plan
+   *  is embedded so the planner produces an incremental diff rather
+   *  than starting from scratch. */
+  parentContext?: ParentRunContext;
 }
 
 export function buildPlannerPrompt(input: BuildPlannerPromptInput): {
@@ -72,6 +76,23 @@ export function buildPlannerPrompt(input: BuildPlannerPromptInput): {
   if (input.refinement?.assumptions && input.refinement.assumptions.length > 0) {
     lines.push('Assumptions accepted by the user:');
     for (const a of input.refinement.assumptions) lines.push(`  - ${a}`);
+    lines.push('');
+  }
+  // v0.1.1-C — parent run context for follow-up runs.
+  if (input.parentContext) {
+    lines.push('PARENT RUN CONTEXT (this run is a follow-up):');
+    lines.push(`  parent runId: ${input.parentContext.runId}`);
+    lines.push(`  parent goal: ${input.parentContext.goal}`);
+    lines.push(`  parent finalState: ${input.parentContext.finalState}`);
+    if (input.parentContext.planJson) {
+      lines.push('  parent plan (JSON):');
+      lines.push(input.parentContext.planJson);
+    }
+    lines.push(
+      'Bias toward incremental edits on top of the parent plan. Reuse parent task ids ' +
+        "where the work is unchanged; use new ids only for net-new work. Don't re-do " +
+        'what the parent already shipped.',
+    );
     lines.push('');
   }
   lines.push(

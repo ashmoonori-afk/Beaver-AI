@@ -2,7 +2,7 @@
 // v0.1: --no-server is mandatory; --server prints the Phase 4 stub.
 // One-active-run rule (D11): rejects if any RUNNING/PAUSED run exists.
 
-import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { Command } from 'commander';
 
@@ -20,10 +20,18 @@ import { printerr, println, resolveDbPath } from './_shared.js';
 
 const ACTIVE = new Set(['RUNNING', 'PAUSED']);
 
+/** Mirror Beaver.seedProjectAndRun (api.ts) — sha256 hash of the
+ *  absolute root path, sliced to 12 hex chars. Without this, the
+ *  CLI's one-active-run guard would query a different project id
+ *  than what Beaver wrote, silently making the guard inoperative. */
+function projectIdForRoot(rootPath: string): string {
+  return `p-${createHash('sha256').update(rootPath).digest('hex').slice(0, 12)}`;
+}
+
 function activeRunId(rootPath: string): string | null {
   const db = openDb({ path: resolveDbPath() });
   try {
-    const rows = listRunsByProject(db, `p-${path.basename(rootPath)}`);
+    const rows = listRunsByProject(db, projectIdForRoot(rootPath));
     return rows.find((r) => ACTIVE.has(r.status))?.id ?? null;
   } catch {
     return null;
@@ -59,6 +67,7 @@ export async function runRun(argv: string[]): Promise<number> {
     .option('--server', 'launch the local web server (Phase 4 — not landed)')
     .option('--replace-active', 'abort an existing active run before starting')
     .option('--auto-approve-final-review', 'auto-approve the final-review checkpoint')
+    .option('--always-accept', 'v0.2 M2.6 — skip the PRD reviewer (every coder iteration counts as pass)')
     .exitOverride();
   try {
     cmd.parse(argv, { from: 'user' });
@@ -70,6 +79,7 @@ export async function runRun(argv: string[]): Promise<number> {
     autoApproveFinalReview?: boolean;
     replaceActive?: boolean;
     server?: boolean;
+    alwaysAccept?: boolean;
   }>();
   if (opts.server) {
     printerr(color.warn('run: --server: Phase 4 not landed yet; use --no-server'));
@@ -99,6 +109,7 @@ export async function runRun(argv: string[]): Promise<number> {
   const beaver = new Beaver({
     rootPath: cwd,
     autoApproveFinalReview: opts.autoApproveFinalReview === true,
+    alwaysAccept: opts.alwaysAccept === true,
     onAgentEvent: (() => {
       let lastText = '';
       return (event: AgentEvent) => {
@@ -116,7 +127,14 @@ export async function runRun(argv: string[]): Promise<number> {
     if (opts.autoApproveFinalReview) {
       println(color.dim('run: final review will be auto-approved for launcher mode'));
     }
-    const result = await beaver.run({ goal });
+    // v0.1.1-C — Tauri shell sets BEAVER_PARENT_RUN_ID when the user
+    // clicks "Continue run" on a finished run. Threading it through
+    // here lets the refiner/planner produce incremental edits.
+    const parentRunId = process.env['BEAVER_PARENT_RUN_ID'];
+    const result = await beaver.run({
+      goal,
+      ...(parentRunId !== undefined && parentRunId.length > 0 ? { parentRunId } : {}),
+    });
     println(color.dim(`run: provider = ${result.provider}`));
     println(color.success(`run: ${result.runId} → ${result.finalState}`));
     return result.finalState === 'COMPLETED' ? 0 : 1;

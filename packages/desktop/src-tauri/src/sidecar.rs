@@ -67,6 +67,12 @@ pub struct RunsStartArgs {
     /// configured at startup if absent.
     #[serde(default)]
     pub project_path: Option<String>,
+    /// v0.1.1-C — when set, the sidecar receives `BEAVER_PARENT_RUN_ID`
+    /// in its environment and threads the parent run's plan + outcome
+    /// into the refiner/planner. Used by the renderer's "Continue run"
+    /// CTA on a terminal run.
+    #[serde(default)]
+    pub parent_run_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -124,16 +130,21 @@ fn resolve_sidecar_command(app: &AppHandle) -> Result<(PathBuf, Vec<String>), St
         }
     }
 
-    // (2) Production — bundled bin.mjs in the resource dir + system node.
+    // (2) Production — bundled bin.mjs in the resource dir + Node binary.
+    //
+    // v0.1.1-B: prefer the Node binary shipped alongside bin.mjs at
+    // `<resourceDir>/sidecar/node[.exe]`. Falls back to a system Node
+    // on PATH so dev builds (which don't always copy node into dist)
+    // and edge cases still work.
     let resource_dir = app
         .path()
         .resource_dir()
         .map_err(|e| format!("could not resolve resource dir: {e}"))?;
     let bundled_bin = resource_dir.join(BUNDLED_BIN_REL);
     if bundled_bin.is_file() {
-        let node = which_node().ok_or_else(|| {
-            "Node.js was not found on PATH. Install Node 22+ from https://nodejs.org \
-             (a bundled Node binary is coming in v0.1.x)."
+        let node = locate_node(&resource_dir).ok_or_else(|| {
+            "Node.js was not found in the bundle or on PATH. Reinstall Beaver, \
+             or install Node 22+ from https://nodejs.org as a workaround."
                 .to_string()
         })?;
         // Node 24 regression workaround — see normalize_path_for_node_argv.
@@ -146,8 +157,20 @@ fn resolve_sidecar_command(app: &AppHandle) -> Result<(PathBuf, Vec<String>), St
     ))
 }
 
-/// Find a `node` executable on PATH. Returns None when missing so the
-/// caller can render an actionable "install Node" message.
+/// Resolve a Node binary, preferring the one shipped with the
+/// installer over whatever the user has on PATH. Bundled-first is
+/// what makes "Pick folder, type goal" work without a system Node.
+fn locate_node(resource_dir: &Path) -> Option<PathBuf> {
+    let exe = if cfg!(windows) { "node.exe" } else { "node" };
+    let bundled = resource_dir.join("sidecar").join(exe);
+    if bundled.is_file() {
+        return Some(bundled);
+    }
+    which_node()
+}
+
+/// Find a `node` executable on PATH. Used as a fallback when the
+/// bundled binary isn't present (dev builds, etc.).
 fn which_node() -> Option<PathBuf> {
     let exe = if cfg!(windows) { "node.exe" } else { "node" };
     let path = std::env::var_os("PATH")?;
@@ -216,7 +239,12 @@ fn strip_unc_prefix(p: &Path) -> PathBuf {
     }
 }
 
-pub fn spawn_run(app: &AppHandle, workdir: &Path, goal: &str) -> Result<String, String> {
+pub fn spawn_run(
+    app: &AppHandle,
+    workdir: &Path,
+    goal: &str,
+    parent_run_id: Option<&str>,
+) -> Result<String, String> {
     let goal = validate_goal(goal)?;
     let (cmd, args) = resolve_sidecar_command(app)?;
     let run_id = make_run_id();
@@ -233,9 +261,16 @@ pub fn spawn_run(app: &AppHandle, workdir: &Path, goal: &str) -> Result<String, 
     let beaver_dir = workdir_clean.join(".beaver");
     fs::create_dir_all(&beaver_dir)
         .map_err(|e| format!("failed to create {}: {e}", beaver_dir.display()))?;
-    let stdout_log = beaver_dir.join("sidecar-stdout.log");
-    let stderr_log = beaver_dir.join("sidecar-stderr.log");
-    let spawn_log = beaver_dir.join("sidecar-spawn.log");
+    // review-pass v0.1.1: per-run log files. Previously every spawn
+    // truncated `sidecar-stderr.log`, so a `wiki_ask` racing with a
+    // `runs_start` would clobber the run's log mid-stream. Each child
+    // now writes to its own `sidecar-stderr-<runId>.log`, plus a
+    // tail-stable `sidecar-stderr.log` symlink-or-copy for the
+    // legacy SidecarDiagnostic Tauri command which expects that path.
+    let stdout_log = beaver_dir.join(format!("sidecar-stdout-{run_id}.log"));
+    let stderr_log = beaver_dir.join(format!("sidecar-stderr-{run_id}.log"));
+    let spawn_log = beaver_dir.join(format!("sidecar-spawn-{run_id}.log"));
+    let latest_stderr = beaver_dir.join("sidecar-stderr.log");
 
     // Diagnostic — write the exact (cmd, args, cwd) we're about to
     // spawn. If something downstream fails silently the user can mail
@@ -254,6 +289,12 @@ pub fn spawn_run(app: &AppHandle, workdir: &Path, goal: &str) -> Result<String, 
         .map_err(|e| format!("failed to create {}: {e}", stdout_log.display()))?;
     let stderr_file = fs::File::create(&stderr_log)
         .map_err(|e| format!("failed to create {}: {e}", stderr_log.display()))?;
+    // Best-effort: keep `sidecar-stderr.log` pointing at the latest
+    // run for SidecarDiagnostic. Copy after spawn finishes via
+    // tracked output; for now the file exists empty and gets
+    // populated as the OS writes through the FD. We skip linking on
+    // Windows where symlink permission isn't reliably available.
+    let _ = fs::write(&latest_stderr, format!("see {}\n", stderr_log.display()));
 
     // The CLI uses cwd to find .beaver/. workdir = the user's project.
     let mut command = Command::new(&cmd);
@@ -265,10 +306,18 @@ pub fn spawn_run(app: &AppHandle, workdir: &Path, goal: &str) -> Result<String, 
         .current_dir(&workdir_clean)
         .stdout(Stdio::from(stdout_file))
         .stderr(Stdio::from(stderr_file))
-        // BEAVER_REFINER + _PLANNER drive the W.12.4 auto-injection.
-        // Setting both here means desktop spawns always use real LLMs.
+        // BEAVER_REFINER + _PLANNER + _REVIEWER drive the auto-injection.
+        // Setting all three here means desktop spawns always use real
+        // LLMs for the goal pipeline (Phase 1-A added the reviewer).
         .env("BEAVER_REFINER", "llm")
-        .env("BEAVER_PLANNER", "llm");
+        .env("BEAVER_PLANNER", "llm")
+        .env("BEAVER_REVIEWER", "llm");
+    // v0.1.1-C — propagate parent run id when this is a follow-up.
+    if let Some(parent) = parent_run_id {
+        if !parent.is_empty() {
+            command.env("BEAVER_PARENT_RUN_ID", parent);
+        }
+    }
 
     // On Windows: hide the cmd window that would otherwise flash for
     // every spawned `node.exe`. The Tauri GUI parent has no console,
@@ -296,7 +345,8 @@ pub fn spawn_run(app: &AppHandle, workdir: &Path, goal: &str) -> Result<String, 
     Ok(run_id)
 }
 
-#[allow(dead_code)] // wired in W.12.6's runs_abort command
+/// Phase 1-C — kill the active sidecar for `run_id` (if any) and
+/// reap. Used by the renderer's Resume UI to abandon a stuck run.
 pub fn abort_run(run_id: &str) -> Result<(), String> {
     let mut guard = ACTIVE_RUNS
         .lock()
@@ -309,6 +359,139 @@ pub fn abort_run(run_id: &str) -> Result<(), String> {
         let _ = child.wait();
     }
     Ok(())
+}
+
+/// Hard cap on a wiki question. Mirrors the orchestrator's goal cap
+/// so the same env-tooling protections apply.
+const MAX_WIKI_QUESTION_LEN: usize = MAX_GOAL_LEN;
+/// Cap on the wiki sidecar's stdout payload before we attempt to
+/// parse JSON. 512 KB is a generous bound for any plausible LLM
+/// answer; larger payloads almost certainly mean the CLI is
+/// streaming garbage. The IPC bridge gets the raw String back so
+/// we don't want unbounded sizes there.
+const MAX_WIKI_STDOUT_BYTES: usize = 512 * 1024;
+/// Hard timeout on a wiki ask. Long enough for a Claude/Codex round
+/// trip + page reads; short enough that a hung child doesn't freeze
+/// the IPC thread permanently.
+const WIKI_TIMEOUT_SECS: u64 = 120;
+/// How much of stderr to surface to the user when the child fails.
+/// Truncate so a noisy CLI doesn't dump kilobytes into the renderer.
+const WIKI_STDERR_TAIL_CHARS: usize = 200;
+
+/// v0.1.1-D / Phase 0 review-pass: async wiki ask with timeout + caps.
+///
+/// Was previously a synchronous `Command::output()` that blocked the
+/// IPC thread indefinitely if the child hung (Rust review C-1).
+/// Now uses `tokio::process::Command` + `tokio::time::timeout` so the
+/// renderer always gets either a result or an explicit timeout error.
+pub async fn run_wiki_ask(
+    app: &AppHandle,
+    workdir: &Path,
+    question: &str,
+) -> Result<String, String> {
+    let trimmed = question.trim();
+    if trimmed.is_empty() {
+        return Err("wiki ask: question is empty".into());
+    }
+    if trimmed.len() > MAX_WIKI_QUESTION_LEN {
+        return Err(format!(
+            "wiki ask: question exceeds {MAX_WIKI_QUESTION_LEN}-char cap"
+        ));
+    }
+
+    let (cmd, args) = resolve_sidecar_command(app)?;
+    let workdir_clean = strip_unc_prefix(workdir);
+
+    let mut command = tokio::process::Command::new(&cmd);
+    command
+        .args(&args)
+        .arg("wiki")
+        .arg("ask")
+        .arg(trimmed)
+        .current_dir(&workdir_clean)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let fut = command.output();
+    let output =
+        match tokio::time::timeout(std::time::Duration::from_secs(WIKI_TIMEOUT_SECS), fut).await {
+            Ok(Ok(o)) => o,
+            Ok(Err(e)) => {
+                return Err(format!(
+                    "wiki ask: failed to spawn sidecar {}: {}",
+                    cmd.display(),
+                    e
+                ));
+            }
+            Err(_) => {
+                return Err(format!("wiki ask: timed out after {WIKI_TIMEOUT_SECS}s"));
+            }
+        };
+
+    if !output.status.success() {
+        let tail = String::from_utf8_lossy(&output.stderr);
+        let last_line = tail.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("");
+        let truncated = if last_line.len() > WIKI_STDERR_TAIL_CHARS {
+            &last_line[..WIKI_STDERR_TAIL_CHARS]
+        } else {
+            last_line
+        };
+        return Err(format!(
+            "wiki ask exited with code {:?}: {}",
+            output.status.code(),
+            truncated
+        ));
+    }
+
+    if output.stdout.len() > MAX_WIKI_STDOUT_BYTES {
+        return Err(format!(
+            "wiki ask: response exceeds {MAX_WIKI_STDOUT_BYTES}-byte cap"
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Phase 1-B — run `git diff` in the active workspace and capture
+/// stdout. Async with timeout to match `run_wiki_ask`'s pattern.
+/// Returns plain unified-diff text the renderer can syntax-highlight.
+pub async fn run_workspace_diff(workdir: &Path) -> Result<String, String> {
+    let workdir_clean = strip_unc_prefix(workdir);
+    let mut command = tokio::process::Command::new("git");
+    command
+        .arg("diff")
+        .arg("HEAD")
+        .current_dir(&workdir_clean)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let output = match tokio::time::timeout(std::time::Duration::from_secs(30), command.output())
+        .await
+    {
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => return Err(format!("git diff failed to spawn: {e}")),
+        Err(_) => return Err("git diff timed out after 30s".into()),
+    };
+    if !output.status.success() {
+        // Most common cause: workspace isn't a git repo. The first
+        // line of stderr is human-readable enough to forward.
+        let tail = String::from_utf8_lossy(&output.stderr);
+        let line = tail.lines().next().unwrap_or("git diff failed");
+        return Err(line.to_string());
+    }
+    // Cap output so a giant diff doesn't blow up the IPC payload.
+    const MAX_DIFF_BYTES: usize = 1024 * 1024;
+    if output.stdout.len() > MAX_DIFF_BYTES {
+        return Err(format!(
+            "git diff: response exceeds {MAX_DIFF_BYTES}-byte cap"
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// Read the most recent sidecar-stderr.log from the active workspace,

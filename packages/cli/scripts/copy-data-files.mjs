@@ -35,6 +35,9 @@ const COPIES = [
 
   // Decision prompts.
   ['packages/core/src/orchestrator/decisions/prompts', 'decisions-prompts'],
+
+  // v0.2 PRD prompts (prd-author.md + ralph-prompt.md).
+  ['packages/core/src/prd/prompts', 'prd-prompts'],
 ];
 
 function copyRecursive(src, dest) {

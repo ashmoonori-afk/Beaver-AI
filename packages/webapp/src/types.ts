@@ -9,6 +9,7 @@ export type RunState =
   | 'PLANNING'
   | 'EXECUTING'
   | 'REVIEWING'
+  | 'INTEGRATING'
   | 'FINAL_REVIEW_PENDING'
   | 'COMPLETED'
   | 'FAILED'
@@ -264,4 +265,18 @@ export interface WikiAnswer {
   /** True when the server returned the empty-wiki fallback. The UI shows
    *  "no relevant entry yet" instead of the answer in that case. */
   empty: boolean;
+}
+
+/** Phase 1-D — one phase's slice of a run's spend. The Rust side
+ *  derives `phase` by correlating each `costs` row with the most
+ *  recent `state.transition` event for that run, so the renderer
+ *  doesn't have to replay events. */
+export interface CostBreakdownEntry {
+  /** FSM phase that the orchestrator was in when the cost was incurred.
+   *  Matches one of `RunState`, or 'UNKNOWN' for cost rows that pre-date
+   *  any state.transition (legacy/edge-case data). */
+  phase: string;
+  usd: number;
+  tokensIn: number;
+  tokensOut: number;
 }

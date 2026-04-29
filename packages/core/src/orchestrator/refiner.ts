@@ -65,6 +65,22 @@ export interface RefinementResult {
   ready: boolean;
 }
 
+/** v0.1.1-C — context from a previous run that this run is iterating
+ *  on. Lets the refiner and planner produce edits/diffs rather than
+ *  re-doing work. Populated by `Beaver.run` when `req.parentRunId`
+ *  resolves to a stored run; left undefined for fresh runs. */
+export interface ParentRunContext {
+  /** Parent run id (`r-…`). */
+  runId: string;
+  /** Original goal of the parent run. */
+  goal: string;
+  /** Final FSM state of the parent run (`COMPLETED` / `FAILED` / etc.). */
+  finalState: string;
+  /** JSON-stringified parent plan (or null when parent had no plan
+   *  on disk yet). The refiner/planner prompt embeds this verbatim. */
+  planJson: string | null;
+}
+
 export interface RefinerInput {
   rawGoal: string;
   /** Verbatim user response from the most recent goal-refinement
@@ -75,6 +91,8 @@ export interface RefinerInput {
    *  responses. Keys are `<scope>:<section>` (e.g. `prd:goals`,
    *  `mvp:features`, `Q1`). Values are the user's free-text request. */
   sectionEdits?: Record<string, string>;
+  /** v0.1.1-C — parent run context for follow-up runs. */
+  parentContext?: ParentRunContext;
 }
 
 export type Refiner = (input: RefinerInput) => Promise<RefinementResult>;

@@ -1,6 +1,6 @@
 [package]
 name = "beaver-desktop"
-version = "0.1.0"
+version = "0.2.1"
 description = "Beaver AI desktop shell — Tauri v2 wrapping the React UI from Phase 4U"
 authors = ["Beaver AI contributors"]
 license = "MIT"
@@ -27,3 +27,11 @@ once_cell = "1.20"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # W.12.7 — native folder picker dialog
 tauri-plugin-dialog = "2"
+# v0.1.1-E — auto-update channel
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+# Phase 0 review-pass: tokio for `wiki_ask` async timeout (C-1).
+# Tauri already pulls tokio in transitively but we need an explicit
+# `time` feature for `tokio::time::timeout` and `process` for the
+# async Command wrapper.
+tokio = { version = "1", features = ["time", "process", "rt", "macros"] }

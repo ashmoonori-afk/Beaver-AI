@@ -47,3 +47,7 @@ OUTPUT/
 # (Cargo.lock IS tracked — beaver-desktop is a binary app, not a library)
 packages/desktop/src-tauri/target/
 packages/desktop/src-tauri/gen/schemas/
+
+# Tauri signing keys (private — must NEVER be committed)
+**/.tauri-signing.key*
+.tauri/

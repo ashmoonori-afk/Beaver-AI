@@ -13,7 +13,7 @@ import path from 'node:path';
 
 import { type Plan, PlanSchema, type Task } from '../plan/schema.js';
 import { extractJsonObject } from '../refinement/parse.js';
-import type { RefinementResult } from '../orchestrator/refiner.js';
+import type { ParentRunContext, RefinementResult } from '../orchestrator/refiner.js';
 import type { ProviderAdapter, RunOptions } from '../types/provider.js';
 
 import { buildPlannerPrompt } from './prompt.js';
@@ -23,6 +23,10 @@ export interface PlannerInput {
   /** Approved refinement (PRD/MVP). When undefined, the planner falls
    *  back to a single-task stub. */
   refinement?: RefinementResult;
+  /** v0.1.1-C — parent run context for follow-up runs. The planner
+   *  uses it to bias toward incremental edits rather than re-creating
+   *  whole subsystems. */
+  parentContext?: ParentRunContext;
 }
 
 export type Planner = (input: PlannerInput) => Promise<Plan>;
@@ -52,6 +56,7 @@ export function makeLlmPlanner(opts: MakeLlmPlannerOptions): Planner {
         rawGoal: input.rawGoal,
         enrichedGoal,
         ...(input.refinement !== undefined ? { refinement: input.refinement } : {}),
+        ...(input.parentContext !== undefined ? { parentContext: input.parentContext } : {}),
       });
       const finalUser =
         lastError !== null

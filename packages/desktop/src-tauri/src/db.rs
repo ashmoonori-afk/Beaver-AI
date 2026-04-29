@@ -281,6 +281,80 @@ pub fn events_list(args: EventsListArgs) -> Result<Vec<EventRow>, DbError> {
     Ok(rows)
 }
 
+// --- cost breakdown ---------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct CostsBreakdownArgs {
+    pub run_id: String,
+    #[serde(default)]
+    pub project_path: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct CostsBreakdownRow {
+    pub phase: String,
+    pub usd: f64,
+    pub tokens_in: i64,
+    pub tokens_out: i64,
+}
+
+/// Phase 1-D — derive the per-phase cost breakdown for a run by
+/// correlating each `costs` row with the most recent
+/// `state.transition` event before it (run_id-scoped). The `to`
+/// field of the transition payload gives us the FSM state the
+/// orchestrator was in when the cost was incurred.
+///
+/// Schema-additive: this avoids a migration on the costs table and
+/// uses what v0.1's orchestrator already records.
+pub fn costs_breakdown(args: CostsBreakdownArgs) -> Result<Vec<CostsBreakdownRow>, DbError> {
+    let Some(conn) = open_readonly(args.project_path.as_deref())? else {
+        return Ok(Vec::new());
+    };
+    costs_breakdown_from_conn(&conn, &args.run_id)
+}
+
+/// SQL extracted into a separate helper so unit tests can exercise the
+/// correlation logic against an in-memory SQLite DB without touching
+/// the workspace path resolver.
+fn costs_breakdown_from_conn(
+    conn: &Connection,
+    run_id: &str,
+) -> Result<Vec<CostsBreakdownRow>, DbError> {
+    // For each cost row, find the latest preceding state.transition
+    // event for the same run and extract its `to` state via
+    // json_extract. Group by phase, sum usd + tokens.
+    let mut stmt = conn.prepare(
+        "SELECT \
+           COALESCE( \
+             (SELECT json_extract(e.payload_json, '$.to') \
+              FROM events e \
+              WHERE e.run_id = c.run_id \
+                AND e.type = 'state.transition' \
+                AND e.ts <= c.ts \
+              ORDER BY e.ts DESC LIMIT 1), \
+             'UNKNOWN' \
+           ) AS phase, \
+           SUM(c.usd) AS usd, \
+           SUM(c.tokens_in) AS tokens_in, \
+           SUM(c.tokens_out) AS tokens_out \
+         FROM costs c \
+         WHERE c.run_id = ?1 \
+         GROUP BY phase \
+         ORDER BY usd DESC",
+    )?;
+    let rows = stmt
+        .query_map([run_id], |r| {
+            Ok(CostsBreakdownRow {
+                phase: r.get::<_, Option<String>>(0)?.unwrap_or_else(|| "UNKNOWN".to_string()),
+                usd: r.get(1)?,
+                tokens_in: r.get(2)?,
+                tokens_out: r.get(3)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 // --- plans ------------------------------------------------------------
 
 #[derive(Deserialize)]
@@ -344,6 +418,98 @@ pub fn plans_list(args: PlansListArgs) -> Result<Vec<PlanRow>, DbError> {
     Ok(out)
 }
 
+// --- v0.2 M3.3 log lines + M3.4 cost ticks --------------------------
+
+#[derive(Deserialize)]
+pub struct LogLinesListArgs {
+    pub run_id: String,
+    /// Cursor: only rows with id > since.
+    #[serde(default)]
+    pub since: Option<i64>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+    #[serde(default)]
+    pub project_path: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct LogLineRow {
+    pub id: i64,
+    pub run_id: String,
+    pub ts: String,
+    pub source: String,
+    pub stream: String,
+    pub text: String,
+}
+
+/// v0.2 M3.3 — tail the log_lines table for the LivePane.
+pub fn log_lines_list(args: LogLinesListArgs) -> Result<Vec<LogLineRow>, DbError> {
+    let Some(conn) = open_readonly(args.project_path.as_deref())? else {
+        return Ok(Vec::new());
+    };
+    let limit = args.limit.unwrap_or(2_000).min(5_000);
+    let since = args.since.unwrap_or(-1);
+    let mut stmt = conn.prepare(
+        "SELECT id, run_id, ts, source, stream, text FROM log_lines \
+         WHERE run_id = ?1 AND id > ?2 ORDER BY id ASC LIMIT ?3",
+    )?;
+    let rows = stmt
+        .query_map(rusqlite::params![&args.run_id, since, limit], |r| {
+            Ok(LogLineRow {
+                id: r.get(0)?,
+                run_id: r.get(1)?,
+                ts: r.get(2)?,
+                source: r.get(3)?,
+                stream: r.get(4)?,
+                text: r.get(5)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+#[derive(Deserialize)]
+pub struct CostTickTotalsArgs {
+    pub run_id: String,
+    #[serde(default)]
+    pub project_path: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct CostTickTotalsRow {
+    pub tokens_in: i64,
+    pub tokens_out: i64,
+    pub usd: f64,
+}
+
+/// v0.2 M3.4 — totals for the LivePane cost counter. SQLite SUMs
+/// against the run_id index; no app-side aggregation needed.
+pub fn cost_ticks_totals(args: CostTickTotalsArgs) -> Result<CostTickTotalsRow, DbError> {
+    let Some(conn) = open_readonly(args.project_path.as_deref())? else {
+        return Ok(CostTickTotalsRow {
+            tokens_in: 0,
+            tokens_out: 0,
+            usd: 0.0,
+        });
+    };
+    let row = conn.query_row(
+        "SELECT \
+            COALESCE(SUM(tokens_in), 0), \
+            COALESCE(SUM(tokens_out), 0), \
+            COALESCE(SUM(usd), 0.0) \
+         FROM cost_ticks WHERE run_id = ?1",
+        rusqlite::params![&args.run_id],
+        |r| {
+            Ok(CostTickTotalsRow {
+                tokens_in: r.get(0)?,
+                tokens_out: r.get(1)?,
+                usd: r.get(2)?,
+            })
+        },
+    )?;
+    Ok(row)
+}
+
 /// Read plan content iff the path canonicalizes to a file inside
 /// `allowed_root`. Returns None for any path that's missing,
 /// unreadable, OR escapes the project's `.beaver/` directory.
@@ -356,4 +522,114 @@ fn read_plan_content_safely(content_path: &str, allowed_root: &Path) -> Option<S
         return None;
     }
     std::fs::read_to_string(&canon).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a minimal in-memory schema that mirrors the shape the
+    /// CLI sidecar's migrations produce — just the columns the
+    /// breakdown query touches.
+    fn fixture_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE events ( \
+               id INTEGER PRIMARY KEY AUTOINCREMENT, \
+               run_id TEXT NOT NULL, \
+               ts TEXT NOT NULL, \
+               source TEXT NOT NULL, \
+               type TEXT NOT NULL, \
+               payload_json TEXT \
+             ); \
+             CREATE TABLE costs ( \
+               id INTEGER PRIMARY KEY AUTOINCREMENT, \
+               run_id TEXT NOT NULL, \
+               ts TEXT NOT NULL, \
+               usd REAL NOT NULL, \
+               tokens_in INTEGER NOT NULL DEFAULT 0, \
+               tokens_out INTEGER NOT NULL DEFAULT 0 \
+             );",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn insert_transition(conn: &Connection, run_id: &str, ts: &str, to: &str) {
+        let payload = format!("{{\"from\":\"INITIALIZED\",\"to\":\"{to}\"}}");
+        conn.execute(
+            "INSERT INTO events (run_id, ts, source, type, payload_json) \
+             VALUES (?1, ?2, 'orchestrator', 'state.transition', ?3)",
+            rusqlite::params![run_id, ts, payload],
+        )
+        .unwrap();
+    }
+
+    fn insert_cost(conn: &Connection, run_id: &str, ts: &str, usd: f64, t_in: i64, t_out: i64) {
+        conn.execute(
+            "INSERT INTO costs (run_id, ts, usd, tokens_in, tokens_out) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![run_id, ts, usd, t_in, t_out],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn empty_when_no_costs() {
+        let conn = fixture_conn();
+        let out = costs_breakdown_from_conn(&conn, "r-1").unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn buckets_costs_into_their_preceding_phase() {
+        let conn = fixture_conn();
+        insert_transition(&conn, "r-1", "2026-04-28T00:00:00Z", "PLANNING");
+        insert_cost(&conn, "r-1", "2026-04-28T00:00:01Z", 0.10, 1_000, 200);
+        insert_transition(&conn, "r-1", "2026-04-28T00:00:02Z", "EXECUTING");
+        insert_cost(&conn, "r-1", "2026-04-28T00:00:03Z", 0.40, 4_000, 800);
+        insert_cost(&conn, "r-1", "2026-04-28T00:00:04Z", 0.20, 2_000, 400);
+        insert_transition(&conn, "r-1", "2026-04-28T00:00:05Z", "REVIEWING");
+        insert_cost(&conn, "r-1", "2026-04-28T00:00:06Z", 0.05, 500, 100);
+
+        let out = costs_breakdown_from_conn(&conn, "r-1").unwrap();
+        // Sorted USD desc: EXECUTING (0.60), PLANNING (0.10), REVIEWING (0.05).
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0].phase, "EXECUTING");
+        assert!((out[0].usd - 0.60).abs() < 1e-9);
+        assert_eq!(out[0].tokens_in, 6_000);
+        assert_eq!(out[0].tokens_out, 1_200);
+        assert_eq!(out[1].phase, "PLANNING");
+        assert!((out[1].usd - 0.10).abs() < 1e-9);
+        assert_eq!(out[2].phase, "REVIEWING");
+    }
+
+    #[test]
+    fn cost_before_any_transition_falls_back_to_unknown() {
+        let conn = fixture_conn();
+        // Cost predates the first state.transition — nothing to
+        // correlate against. The COALESCE falls through to 'UNKNOWN'
+        // so the renderer can still surface the spend.
+        insert_cost(&conn, "r-1", "2026-04-28T00:00:00Z", 0.07, 100, 20);
+        insert_transition(&conn, "r-1", "2026-04-28T00:00:01Z", "PLANNING");
+
+        let out = costs_breakdown_from_conn(&conn, "r-1").unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].phase, "UNKNOWN");
+        assert!((out[0].usd - 0.07).abs() < 1e-9);
+    }
+
+    #[test]
+    fn ignores_other_runs() {
+        let conn = fixture_conn();
+        insert_transition(&conn, "r-1", "2026-04-28T00:00:00Z", "EXECUTING");
+        insert_cost(&conn, "r-1", "2026-04-28T00:00:01Z", 0.30, 3_000, 600);
+        insert_transition(&conn, "r-2", "2026-04-28T00:00:00Z", "PLANNING");
+        insert_cost(&conn, "r-2", "2026-04-28T00:00:01Z", 0.99, 9_000, 1_800);
+
+        let out = costs_breakdown_from_conn(&conn, "r-1").unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].phase, "EXECUTING");
+        assert!((out[0].usd - 0.30).abs() < 1e-9);
+    }
 }

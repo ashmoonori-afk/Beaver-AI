@@ -43,6 +43,10 @@ export * from './refinement/prompt.js';
 export * from './planning/llm-planner.js';
 export * from './planning/prompt.js';
 
+// review/ (Phase 1-A — real reviewer, no more always-accept)
+export * from './review/llm-reviewer.js';
+export * from './review/prompt.js';
+
 // sandbox/
 export * from './sandbox/patterns.js';
 export * from './sandbox/classify.js';
@@ -70,9 +74,8 @@ export * from './providers/codex/adapter.js';
 export * from './providers/codex/shim-install.js';
 export * from './providers/codex/audit.js';
 
-// feedback/ (checkpoint primitive + wiki query indirection)
+// feedback/ (checkpoint primitive)
 export * from './feedback/checkpoint.js';
-export * from './feedback/wiki-query.js';
 
 // wiki/
 export * from './wiki/bootstrap.js';
@@ -92,3 +95,18 @@ export * from './workspace/dao/events.js';
 export * from './workspace/dao/checkpoints.js';
 export * from './workspace/dao/costs.js';
 export * from './workspace/dao/rate_table.js';
+export * from './workspace/dao/prd_runs.js';
+export * from './workspace/dao/prd_tasks.js';
+export * from './workspace/dao/log_lines.js';
+export * from './workspace/dao/cost_ticks.js';
+
+// prd/ (v0.2 — author + render + freeze + parse + dispatcher + reviewer)
+export * from './prd/render.js';
+export * from './prd/validate.js';
+export * from './prd/freeze.js';
+export * from './prd/parse-acceptance.js';
+export * from './prd/dispatcher.js';
+export * from './prd/reviewer.js';
+
+// metrics — v0.2 M4.2 KR1/KR2/KR5 logger.
+export * from './metrics.js';

@@ -55,8 +55,15 @@ const PHASES: ReadonlyArray<Phase> = [
     matches: ['review.verdict'],
   },
   {
+    key: 'INTEGRATING',
+    label: '5. Integrating',
+    description:
+      'Per-task branches are merged sequentially into your working branch. Conflicts pause for your input.',
+    matches: ['task.integrated', 'task.merge_failed'],
+  },
+  {
     key: 'FINAL_REVIEW_PENDING',
-    label: '5. Awaiting your approval',
+    label: '6. Awaiting your approval',
     description:
       'Beaver paused at the final-review checkpoint. Approve to finalize or reject to abort.',
     matches: [],
@@ -69,6 +76,7 @@ const STATE_ORDER: RunState[] = [
   'PLANNING',
   'EXECUTING',
   'REVIEWING',
+  'INTEGRATING',
   'FINAL_REVIEW_PENDING',
   'COMPLETED',
   'FAILED',

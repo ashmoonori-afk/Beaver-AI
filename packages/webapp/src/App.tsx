@@ -16,29 +16,48 @@ import { GoalBox } from './components/GoalBox.js';
 import { HelpDialog } from './components/HelpDialog.js';
 import { LogsPanel } from './components/LogsPanel.js';
 import { PhaseTimeline } from './components/PhaseTimeline.js';
+import { ChatPane } from './components/ChatPane.js';
+import { CostCounter } from './components/CostCounter.js';
+import { LiveLogList } from './components/LiveLogList.js';
+import { LivePane } from './components/LivePane.js';
 import { PlanPanel } from './components/PlanPanel.js';
+import { PRDPane } from './components/PRDPane.js';
+import { OnboardingDialog } from './components/OnboardingDialog.js';
+import { ThreePanelLayout } from './components/ThreePanelLayout.js';
+import { ResumeBanner, findResumeCandidate } from './components/ResumeBanner.js';
 import { ReviewPanel } from './components/ReviewPanel.js';
 import { RunsList } from './components/RunsList.js';
 import { SidecarDiagnostic } from './components/SidecarDiagnostic.js';
-import { WikiSearch } from './components/WikiSearch.js';
+import { UpdateBanner } from './components/UpdateBanner.js';
+import { WikiPanel } from './components/WikiPanel.js';
 import { WorkspaceBanner } from './components/WorkspaceBanner.js';
 import { makeMockAskWikiTransport } from './hooks/mockAskWikiTransport.js';
 import { makeMockCheckpointTransport } from './hooks/mockCheckpointTransport.js';
+import { makeMockCostBreakdownTransport } from './hooks/mockCostBreakdownTransport.js';
 import { makeMockEventsTransport } from './hooks/mockEventsTransport.js';
 import { makeMockFinalReviewTransport } from './hooks/mockFinalReviewTransport.js';
 import { makeMockPlanTransport } from './hooks/mockPlanTransport.js';
 import { makeMockTransport } from './hooks/mockTransport.js';
+import { makeMockWikiPagesTransport } from './hooks/mockWikiPagesTransport.js';
 import {
   makeTauriAskWikiTransport,
   makeTauriCheckpointTransport,
+  makeTauriCostBreakdownTransport,
   makeTauriEventsTransport,
   makeTauriFinalReviewTransport,
   makeTauriPlanListTransport,
   makeTauriRunSnapshotTransport,
+  makeTauriWikiPagesTransport,
   tauriStartRun,
 } from './hooks/tauriTransports.js';
 import type { AskWikiTransport } from './hooks/useAskWiki.js';
+import type { WikiPagesTransport } from './hooks/useWikiPages.js';
 import { useCheckpoints, type CheckpointTransport } from './hooks/useCheckpoints.js';
+import { useCostBreakdown, type CostBreakdownTransport } from './hooks/useCostBreakdown.js';
+import { useCostTotals } from './hooks/useCostTotals.js';
+import { useFirstRunOnboarding } from './hooks/useFirstRunOnboarding.js';
+import { useLogLines } from './hooks/useLogLines.js';
+import { useLocale } from './hooks/useLocale.js';
 import { useEvents, type EventsTransport } from './hooks/useEvents.js';
 import { useFinalReview, type FinalReviewTransport } from './hooks/useFinalReview.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
@@ -46,6 +65,7 @@ import { usePlanList, type PlanListTransport } from './hooks/usePlanList.js';
 import { useRunSnapshot, type RunSnapshotTransport } from './hooks/useRunSnapshot.js';
 import { useRunsList } from './hooks/useRunsList.js';
 import { useSidecarDiagnostic } from './hooks/useSidecarDiagnostic.js';
+import { useUpdateCheck } from './hooks/useUpdateCheck.js';
 import { useWorkspace } from './hooks/useWorkspace.js';
 import { classifyError, type ClassifiedError } from './lib/errorMessages.js';
 import { useCurrentPanel, type Panel, PANELS, navigate } from './router.js';
@@ -53,7 +73,9 @@ import { cn } from './lib/utils.js';
 import { isTauri } from './lib/tauriRuntime.js';
 
 const PANEL_LABEL: Record<Panel, string> = {
+  home: 'Home',
   status: 'Status',
+  prd: 'PRD',
   checkpoints: 'Checkpoints',
   plan: 'Plan',
   logs: 'Logs',
@@ -95,6 +117,7 @@ interface StatusPanelProps {
   activeRunId: string | null;
   transport: RunSnapshotTransport;
   eventsTransport: EventsTransport;
+  costBreakdownTransport: CostBreakdownTransport;
   onSubmit: (goal: string) => void;
   /** Tauri-only: when no workspace is selected we render a folder
    *  picker card instead of the GoalBox so the user can't submit a
@@ -111,6 +134,7 @@ function StatusPanel({
   activeRunId,
   transport,
   eventsTransport,
+  costBreakdownTransport,
   onSubmit,
   workspaceCard,
   runsSidebar,
@@ -121,6 +145,10 @@ function StatusPanel({
   // into the PhaseTimeline so the user sees what's happening now
   // without leaving the Status panel.
   const events = useEvents(activeRunId, eventsTransport);
+  // Phase 1-D — per-phase spend breakdown. Polled alongside the
+  // snapshot so the segmented bar refreshes at the same cadence as
+  // the headline cost ticker.
+  const costBreakdown = useCostBreakdown(activeRunId, costBreakdownTransport);
   // Watchdog: if the sidecar dies before inserting the runs row, this
   // pulls the stderr tail so the user sees Node's actual error.
   const diagnostic = useSidecarDiagnostic(activeRunId, snapshot);
@@ -157,7 +185,7 @@ function StatusPanel({
   return (
     <section className="grid gap-6 py-6 lg:grid-cols-[1fr,18rem]">
       <div className="flex flex-col gap-6">
-        <Bento snapshot={snapshot} />
+        <Bento snapshot={snapshot} costBreakdown={costBreakdown} />
         <PhaseTimeline events={events} currentState={snapshot.state} />
         {isTerminal && continueCta ? continueCta : null}
       </div>
@@ -167,6 +195,69 @@ function StatusPanel({
           {runsSidebar}
         </aside>
       ) : null}
+    </section>
+  );
+}
+
+interface HomePanelProps {
+  activeRunId: string | null;
+  transport: RunSnapshotTransport;
+  eventsTransport: EventsTransport;
+  checkpointTransport: CheckpointTransport;
+  onSubmit: (goal: string) => void;
+  desktop: boolean;
+  workspaceCard?: ReactNode;
+  continueCta?: ReactNode;
+}
+
+/** v0.2 M3.1 Home — three-panel main view: Chat | PRD | Live. Each
+ *  pane is a small wrapper around an existing component so the
+ *  layout switch does not change any underlying behaviour. */
+function HomePanel({
+  activeRunId,
+  transport,
+  eventsTransport,
+  checkpointTransport,
+  onSubmit,
+  desktop,
+  workspaceCard,
+  continueCta,
+}: HomePanelProps) {
+  const snapshot = useRunSnapshot(activeRunId, transport);
+  const events = useEvents(activeRunId, eventsTransport);
+  const { lines } = useLogLines(activeRunId);
+  const { totals } = useCostTotals(activeRunId);
+  const chatProps: Parameters<typeof ChatPane>[0] = {
+    activeRunId,
+    onSubmit,
+  };
+  if (continueCta !== undefined) chatProps.continueCta = continueCta;
+  if (workspaceCard !== undefined) chatProps.workspaceCard = workspaceCard;
+  return (
+    <section className="py-2">
+      <ThreePanelLayout
+        left={<ChatPane {...chatProps} />}
+        center={
+          <PRDPane
+            enabled={desktop}
+            activeRunId={activeRunId}
+            checkpointTransport={checkpointTransport}
+          />
+        }
+        right={
+          <LivePane
+            events={events}
+            snapshot={snapshot}
+            costCounter={
+              <CostCounter
+                totals={totals}
+                budgetUsd={snapshot?.budgetUsd ?? 5}
+              />
+            }
+            logList={<LiveLogList lines={lines} />}
+          />
+        }
+      />
     </section>
   );
 }
@@ -226,6 +317,8 @@ export interface AppProps {
   eventsTransport?: EventsTransport;
   finalReviewTransport?: FinalReviewTransport;
   askWikiTransport?: AskWikiTransport;
+  costBreakdownTransport?: CostBreakdownTransport;
+  wikiPagesTransport?: WikiPagesTransport;
 }
 
 export default function App({
@@ -236,6 +329,8 @@ export default function App({
   eventsTransport,
   finalReviewTransport,
   askWikiTransport,
+  costBreakdownTransport,
+  wikiPagesTransport,
 }: AppProps = {}) {
   const panel = useCurrentPanel();
   const [helpOpen, setHelpOpen] = useState(false);
@@ -248,9 +343,20 @@ export default function App({
   const desktop = isTauri();
   const workspace = useWorkspace();
   const runs = useRunsList();
+  const updateState = useUpdateCheck();
+  // Phase 3-A — first-run onboarding. Only enabled in desktop so
+  // tests + browser dev mode don't fight the modal. Persisted
+  // dismissal lives in localStorage; once dismissed it stays gone.
+  const onboarding = useFirstRunOnboarding({ enabled: desktop });
+  // Phase 4-B — UI locale. Auto-detected from navigator.language;
+  // user can override via the toggle in HelpDialog.
+  const localeCtl = useLocale();
   const [bannerError, setBannerError] = useState<ClassifiedError | null>(null);
   const lastGoalRef = useRef<string | null>(null);
   const [continueDraft, setContinueDraft] = useState<string>('');
+  // Phase 1-C — Resume banner: dismissed for the session once the
+  // user clicks Resume / Abort / × so it doesn't keep popping back.
+  const [resumeDismissed, setResumeDismissed] = useState<boolean>(false);
   // review-pass v0.1: in desktop mode the transport doesn't depend on
   // activeGoal — re-creating it on every keystroke caused
   // useRunSnapshot to re-subscribe and blink the Bento. Split the
@@ -285,13 +391,25 @@ export default function App({
     () => askWikiTransport ?? (desktop ? makeTauriAskWikiTransport() : makeMockAskWikiTransport()),
     [askWikiTransport, desktop],
   );
+  const resolvedCostBreakdownTransport = useMemo(
+    () =>
+      costBreakdownTransport ??
+      (desktop ? makeTauriCostBreakdownTransport() : makeMockCostBreakdownTransport()),
+    [costBreakdownTransport, desktop],
+  );
+  const resolvedWikiPagesTransport = useMemo(
+    () =>
+      wikiPagesTransport ??
+      (desktop ? makeTauriWikiPagesTransport() : makeMockWikiPagesTransport()),
+    [wikiPagesTransport, desktop],
+  );
   // Guard against double-submit while a tauri runs_start is in flight.
   // Without this, a quick second click would spawn a second Rust
   // sidecar; whichever response resolved last would set activeRunId,
   // which could then point at the wrong run.
   const startingRef = useRef(false);
   const handleGoal = useCallback(
-    (goal: string) => {
+    (goal: string, parentRunId?: string) => {
       if (startingRef.current) return;
       setActiveGoal(goal);
       lastGoalRef.current = goal;
@@ -301,7 +419,7 @@ export default function App({
       // id so the mock transport has something to key on.
       if (desktop) {
         startingRef.current = true;
-        tauriStartRun(goal)
+        tauriStartRun(goal, parentRunId)
           .then(({ runId }) => setActiveRunId(runId))
           .catch((err: unknown) => {
             // eslint-disable-next-line no-console
@@ -353,28 +471,56 @@ export default function App({
   /** UX-2/UX-3 — re-key onto a previous run from the runs sidebar.
    *  The existing transports re-subscribe automatically since they
    *  depend on activeRunId. Pending-review runs land back in the
-   *  CheckpointPanel where the user can answer. */
+   *  CheckpointPanel where the user can answer.
+   *  Phase 0 review-pass: also reset `lastGoalRef` so a stale
+   *  retry-banner action doesn't replay the previously-active run's
+   *  goal in the newly-selected run's context. */
   const handleSelectRun = useCallback((runId: string) => {
     setActiveRunId(runId);
     setActiveGoal(null);
     setBannerError(null);
     setContinueDraft('');
+    lastGoalRef.current = null;
   }, []);
 
-  /** UX-4 — start a follow-up run using the previous goal as context.
-   *  v0.1 keeps the orchestrator stateless across runs: we prepend the
-   *  previous goal to the new draft so the planner/refiner can see
-   *  what was attempted. v0.1.x will thread BEAVER_PARENT_RUN_ID and
-   *  load the prior run's plan as additional context. */
+  // Phase 1-C — Resume banner handlers.
+  const handleResume = useCallback(
+    (runId: string) => {
+      setResumeDismissed(true);
+      handleSelectRun(runId);
+    },
+    [handleSelectRun],
+  );
+  const handleAbort = useCallback(
+    async (runId: string) => {
+      setResumeDismissed(true);
+      if (!desktop) return;
+      try {
+        const mod = (await import('@tauri-apps/api/core')) as unknown as {
+          invoke: (cmd: string, args?: Record<string, unknown>) => Promise<void>;
+        };
+        await mod.invoke('runs_abort', { args: { run_id: runId } });
+      } catch (err: unknown) {
+        // eslint-disable-next-line no-console
+        console.error('[beaver] runs_abort failed', err);
+      }
+    },
+    [desktop],
+  );
+
+  /** UX-4 + v0.1.1-C — start a follow-up run.
+   *  - The new goal is the user's draft; we don't prepend anything
+   *    because the orchestrator now threads parent context properly
+   *    via BEAVER_PARENT_RUN_ID (the planner/refiner see parent's
+   *    plan + outcome and produce incremental edits).
+   *  - When `activeRunId` is set, we pass it as parentRunId so the
+   *    Tauri shell sets the env var on the spawned sidecar.
+   */
   const handleContinueRun = useCallback(() => {
-    const prior = runs.find((r) => r.id === activeRunId);
     const draft = continueDraft.trim();
     if (!draft) return;
-    const followUp = prior
-      ? `Continue from previous goal: "${prior.goal}"\n\nNew request:\n${draft}`
-      : draft;
-    handleGoal(followUp);
-  }, [runs, activeRunId, continueDraft, handleGoal]);
+    handleGoal(draft, activeRunId ?? undefined);
+  }, [activeRunId, continueDraft, handleGoal]);
 
   // Tauri-only: block goal submission until a workspace is picked, by
   // rendering the picker card (or its loading variant) in the GoalBox
@@ -433,15 +579,35 @@ export default function App({
   );
 
   const panels: Record<Panel, ReactNode> = {
+    home: (
+      <HomePanel
+        activeRunId={activeRunId}
+        transport={resolvedTransport}
+        eventsTransport={resolvedEventsTransport}
+        checkpointTransport={resolvedCheckpointTransport}
+        onSubmit={handleGoal}
+        desktop={desktop}
+        {...(workspaceCard !== null ? { workspaceCard } : {})}
+        {...(continueCta !== null ? { continueCta } : {})}
+      />
+    ),
     status: (
       <StatusPanel
         activeRunId={activeRunId}
         transport={resolvedTransport}
         eventsTransport={resolvedEventsTransport}
+        costBreakdownTransport={resolvedCostBreakdownTransport}
         onSubmit={handleGoal}
         {...(workspaceCard !== null ? { workspaceCard } : {})}
         {...(runsSidebar !== null ? { runsSidebar } : {})}
         continueCta={continueCta}
+      />
+    ),
+    prd: (
+      <PRDPane
+        enabled={desktop}
+        activeRunId={activeRunId}
+        checkpointTransport={resolvedCheckpointTransport}
       />
     ),
     checkpoints: (
@@ -450,7 +616,12 @@ export default function App({
     plan: <PlanRoute activeRunId={activeRunId} transport={resolvedPlanTransport} />,
     logs: <LogsRoute activeRunId={activeRunId} transport={resolvedEventsTransport} />,
     review: <ReviewRoute activeRunId={activeRunId} transport={resolvedFinalReviewTransport} />,
-    wiki: <WikiSearch transport={resolvedAskWikiTransport} />,
+    wiki: (
+      <WikiPanel
+        askTransport={resolvedAskWikiTransport}
+        pagesTransport={resolvedWikiPagesTransport}
+      />
+    ),
   };
   return (
     <div className="min-h-screen bg-surface-900 font-sans">
@@ -494,6 +665,17 @@ export default function App({
           </button>
         </div>
       </header>
+      <UpdateBanner state={updateState} />
+      {desktop && !activeRunId && !resumeDismissed ? (
+        <ResumeBanner
+          candidate={findResumeCandidate(runs)}
+          onResume={handleResume}
+          onAbort={(rid) => {
+            void handleAbort(rid);
+          }}
+          onDismiss={() => setResumeDismissed(true)}
+        />
+      ) : null}
       {bannerError ? (
         <ErrorBanner
           error={bannerError}
@@ -502,7 +684,21 @@ export default function App({
         />
       ) : null}
       <main className="px-6">{panels[panel]}</main>
-      {helpOpen ? <HelpDialog onClose={() => setHelpOpen(false)} /> : null}
+      {helpOpen ? (
+        <HelpDialog
+          onClose={() => setHelpOpen(false)}
+          locale={localeCtl.locale}
+          onLocaleChange={localeCtl.setLocale}
+        />
+      ) : null}
+      {onboarding.open ? (
+        <OnboardingDialog
+          workspacePath={workspace.path}
+          onPickWorkspace={() => workspace.pick()}
+          onComplete={onboarding.complete}
+          locale={localeCtl.locale}
+        />
+      ) : null}
     </div>
   );
 }

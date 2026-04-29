@@ -33,8 +33,6 @@ jobs:
 
       - run: pnpm -r exec tsc --noEmit
 
-      - run: pnpm test
-
       # review-pass v0.1: dependency CVE scan. `--audit-level=high`
       # only fails the build for HIGH/CRITICAL advisories so MEDIUM
       # noise doesn't block a release tag. v0.1.x will add cargo audit

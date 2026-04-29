@@ -14,11 +14,21 @@ export function CheckpointPanel({ checkpoints, onAnswer }: CheckpointPanelProps)
     return (
       <section
         data-testid="checkpoint-panel"
-        className="flex h-[calc(100vh-4rem)] items-center justify-center"
+        className="flex h-[calc(100vh-4rem)] items-center justify-center px-6"
       >
-        <p className="text-caption text-text-500">
-          No checkpoints awaiting input. Beaver will ping you here when it needs you.
-        </p>
+        <div
+          data-testid="checkpoint-panel-empty"
+          className="max-w-sm rounded-card border border-surface-700 bg-surface-800/60 p-6 text-center"
+        >
+          <span aria-hidden className="text-hero text-accent-500">
+            ✓
+          </span>
+          <h2 className="mt-2 text-body text-text-50 font-medium">All clear</h2>
+          <p className="mt-1 text-caption text-text-400">
+            No checkpoints awaiting input. When Beaver needs your call — risky shell command, plan
+            approval, merge conflict, or final review — the question lands here.
+          </p>
+        </div>
       </section>
     );
   }

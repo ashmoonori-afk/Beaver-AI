@@ -33,7 +33,7 @@ jobs:
             bundle_paths: |
               packages/desktop/src-tauri/target/release/bundle/deb/*.deb
               packages/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
-          - os: macos-latest
+          - os: macos-13
             target: macos
             bundle_paths: |
               packages/desktop/src-tauri/target/release/bundle/dmg/*.dmg
@@ -75,15 +75,23 @@ jobs:
       # gives a clear failure surface if esbuild breaks.
       - run: pnpm --filter @beaver-ai/cli build
 
-      # v0.1 ships UNSIGNED on every OS. Code-signing/notarization
-      # secrets aren't configured yet — when they were referenced via
-      # `${{ secrets.APPLE_CERTIFICATE }}` the empty value was passed
-      # as an empty string env var, and `tauri build` attempted (and
-      # failed) to import an empty keychain cert. Until we have real
-      # certs, drop the env vars entirely so the build goes unsigned.
-      # macOS users will see a Gatekeeper warning the first time they
-      # run the .dmg (right-click → Open to bypass).
-      - name: Tauri build
+      - name: Tauri build (windows / linux)
+        if: matrix.target != 'macos'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm --filter @beaver-ai/desktop tauri build
+
+      - name: Tauri build (macOS — notarization secrets scoped here only)
+        if: matrix.target == 'macos'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: pnpm --filter @beaver-ai/desktop tauri build
 
       - name: Upload artifacts to GitHub Release

@@ -1,5 +1,0 @@
-{
-  "name": "truncated",
-  "events": [{ "type": "agent.message", "text": "starting" }],
-  "exitCode": 0
-}

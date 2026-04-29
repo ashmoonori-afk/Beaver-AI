@@ -43,9 +43,16 @@ function relativeTime(iso: string): string {
 export function RunsList({ runs, activeRunId, onSelect }: RunsListProps) {
   if (runs.length === 0) {
     return (
-      <p className="text-caption text-text-500" aria-label="No previous runs">
-        No previous runs yet.
-      </p>
+      <div
+        data-testid="runs-list-empty"
+        className="rounded-card border border-dashed border-surface-700 bg-surface-800/40 p-3 text-caption text-text-500"
+        aria-label="No previous runs"
+      >
+        <p className="text-text-300">No runs in this project yet.</p>
+        <p className="mt-1">
+          Past runs land here so you can resume a checkpoint or revisit a finished plan.
+        </p>
+      </div>
     );
   }
   return (

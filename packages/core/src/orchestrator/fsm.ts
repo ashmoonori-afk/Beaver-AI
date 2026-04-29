@@ -11,8 +11,9 @@
 //   exhaustiveness in `transition` via the `never` check at the bottom.
 // - Invalid transitions throw `InvalidTransitionError(from, to)` so the
 //   orchestrator can decide whether to escalate or abort.
-// - INTEGRATING (multi-task v0.2+) is intentionally out of scope; not in the
-//   union for v0.1.
+// - INTEGRATING (Phase 2-A) merges per-task worktree branches into the
+//   user's working branch in the parallel-execution path. Sequential
+//   mode skips it (single worktree → no merges to do).
 
 export const RUN_STATES = [
   'INITIALIZED',
@@ -20,6 +21,7 @@ export const RUN_STATES = [
   'PLANNING',
   'EXECUTING',
   'REVIEWING',
+  'INTEGRATING',
   'FINAL_REVIEW_PENDING',
   'COMPLETED',
   'FAILED',
@@ -42,6 +44,8 @@ export type RunEvent =
   | { type: 'TASK_DISPATCHED' }
   | { type: 'TASK_COMPLETED' }
   | { type: 'REVIEW_DONE' }
+  | { type: 'INTEGRATION_STARTED' }
+  | { type: 'INTEGRATION_DONE' }
   | { type: 'FINAL_REVIEW_REQUESTED' }
   | { type: 'FINAL_APPROVED' }
   | { type: 'FAIL'; reason: string }
@@ -99,10 +103,20 @@ export function transition(state: RunState, event: RunEvent): RunState {
     case 'EXECUTING':
       if (event.type === 'TASK_DISPATCHED') return 'EXECUTING';
       if (event.type === 'TASK_COMPLETED') return 'REVIEWING';
+      // Phase 2-A — parallel mode skips REVIEWING (per-task review
+      // happens inside the worker pool) and goes straight to
+      // INTEGRATING after all workers are done.
+      if (event.type === 'INTEGRATION_STARTED') return 'INTEGRATING';
       break;
     case 'REVIEWING':
       if (event.type === 'REVIEW_DONE') return 'EXECUTING';
       if (event.type === 'FINAL_REVIEW_REQUESTED') return 'FINAL_REVIEW_PENDING';
+      break;
+    case 'INTEGRATING':
+      // Phase 2-A — only success exit. Conflicts are resolved via
+      // checkpoints and re-attempted from inside this state, so the
+      // FSM never re-enters from REVIEWING.
+      if (event.type === 'INTEGRATION_DONE') return 'FINAL_REVIEW_PENDING';
       break;
     case 'FINAL_REVIEW_PENDING':
       if (event.type === 'FINAL_APPROVED') return 'COMPLETED';

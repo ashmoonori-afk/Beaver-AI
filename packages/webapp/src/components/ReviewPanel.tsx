@@ -3,12 +3,14 @@
 // + rehype-sanitize). Two big actions: approve (emerald) / discard
 // (rose, modal-confirmed). No `dangerouslySetInnerHTML`, no client git.
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
 
 import { BranchPill } from './BranchPill.js';
 import { ConfirmDiscardModal } from './ConfirmDiscardModal.js';
+import { DiffViewer } from './DiffViewer.js';
+import { useWorkspaceDiff } from '../hooks/useWorkspaceDiff.js';
 import { DESTRUCTIVE, PRIMARY } from '../lib/buttonClasses.js';
 import type { BranchSummary, DiffStat, FinalReportSummary } from '../types.js';
 
@@ -21,6 +23,14 @@ export function ReviewPanel({ report, onDecide }: ReviewPanelProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // Phase 1-B — show what the agent actually did before approve/reject.
+  const { state: diffState, refresh: refreshDiff } = useWorkspaceDiff();
+  // Auto-fetch the diff once when the report shows up.
+  useEffect(() => {
+    if (report) {
+      void refreshDiff();
+    }
+  }, [report, refreshDiff]);
 
   // Submit closes the confirm modal only on success — on rejection the
   // modal stays open with the error visible so the user can retry or
@@ -66,6 +76,14 @@ export function ReviewPanel({ report, onDecide }: ReviewPanelProps) {
         <BranchList branches={report.branches} />
         <FinalReportMarkdown markdown={report.markdown} />
       </article>
+      <DiffViewer
+        status={diffState.status}
+        {...(diffState.status === 'ready' ? { diff: diffState.diff } : {})}
+        {...(diffState.status === 'error' ? { errorMessage: diffState.message } : {})}
+        onRefresh={() => {
+          void refreshDiff();
+        }}
+      />
       {error ? (
         <p role="alert" className="text-caption text-danger-500">
           {error}

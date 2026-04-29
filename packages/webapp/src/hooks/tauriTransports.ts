@@ -29,10 +29,13 @@ import type {
 } from '../types.js';
 import type { AskWikiTransport } from './useAskWiki.js';
 import type { CheckpointTransport } from './useCheckpoints.js';
+import type { CostBreakdownTransport } from './useCostBreakdown.js';
 import type { EventsTransport } from './useEvents.js';
 import type { FinalReviewTransport } from './useFinalReview.js';
 import type { PlanListTransport } from './usePlanList.js';
 import type { RunSnapshotTransport } from './useRunSnapshot.js';
+import type { WikiPageListing, WikiPagesTransport } from './useWikiPages.js';
+import type { CostBreakdownEntry } from '../types.js';
 
 interface RunStartResult {
   runId: string;
@@ -63,10 +66,14 @@ function makePollingLoop(label: string, body: () => Promise<void>): () => void {
 }
 
 /** Triggered by the GoalBox path. The Tauri shell spawns the CLI
- *  sidecar with the supplied goal and returns a fresh run id. */
-export async function tauriStartRun(goal: string): Promise<RunStartResult> {
+ *  sidecar with the supplied goal and returns a fresh run id. When
+ *  `parentRunId` is set, the orchestrator threads parent context
+ *  (plan + outcome) into the refiner/planner. */
+export async function tauriStartRun(goal: string, parentRunId?: string): Promise<RunStartResult> {
   // Rust returns snake_case keys; renderer uses camelCase RunStartResult.
-  const raw = await invoke<{ run_id: string }>('runs_start', { args: { goal } });
+  const args: { goal: string; parent_run_id?: string } = { goal };
+  if (parentRunId) args.parent_run_id = parentRunId;
+  const raw = await invoke<{ run_id: string }>('runs_start', { args });
   return { runId: raw.run_id };
 }
 
@@ -89,6 +96,7 @@ function statusToRunState(status: string): RunState {
     'PLANNING',
     'EXECUTING',
     'REVIEWING',
+    'INTEGRATING',
     'FINAL_REVIEW_PENDING',
     'COMPLETED',
     'FAILED',
@@ -352,6 +360,40 @@ export function makeTauriPlanListTransport(): PlanListTransport {
   };
 }
 
+// --- cost breakdown ---------------------------------------------------
+
+interface CostBreakdownRowRaw {
+  phase: string;
+  usd: number;
+  tokens_in: number;
+  tokens_out: number;
+}
+
+function rowToCostBreakdown(row: CostBreakdownRowRaw): CostBreakdownEntry {
+  return {
+    phase: row.phase,
+    usd: row.usd,
+    tokensIn: row.tokens_in,
+    tokensOut: row.tokens_out,
+  };
+}
+
+/** Phase 1-D — polling-based cost breakdown transport. The Rust side
+ *  derives the per-phase grouping from a JOIN-ish correlated subquery
+ *  against the events table; the renderer just re-renders the bars. */
+export function makeTauriCostBreakdownTransport(): CostBreakdownTransport {
+  return {
+    subscribe(runId, onList) {
+      return makePollingLoop(`costs_breakdown(${runId})`, async () => {
+        const rows = await invoke<CostBreakdownRowRaw[]>('costs_breakdown', {
+          args: { run_id: runId },
+        });
+        onList(rows.map(rowToCostBreakdown));
+      });
+    },
+  };
+}
+
 // --- final review -----------------------------------------------------
 
 export function makeTauriFinalReviewTransport(): FinalReviewTransport {
@@ -392,25 +434,97 @@ export function makeTauriFinalReviewTransport(): FinalReviewTransport {
   };
 }
 
+// --- wiki browse (Phase 2-C) ------------------------------------------
+
+interface WikiPageEntryRaw {
+  path: string;
+  title: string;
+  section: string;
+  modified_unix_ms: number;
+  bytes: number;
+}
+
+interface WikiPagesResultRaw {
+  pages: WikiPageEntryRaw[];
+  wiki_path: string;
+  exists: boolean;
+}
+
+function rawToWikiPage(row: WikiPageEntryRaw): WikiPageListing {
+  return {
+    path: row.path,
+    title: row.title,
+    section: row.section,
+    modifiedAt: new Date(row.modified_unix_ms).toISOString(),
+    bytes: row.bytes,
+  };
+}
+
+/** Phase 2-C — Tauri-backed wiki page list + reveal-in-explorer.
+ *  One-shot list (renderer reloads after a run completes if it cares
+ *  about freshness); no polling. */
+export function makeTauriWikiPagesTransport(): WikiPagesTransport {
+  return {
+    async list() {
+      const raw = await invoke<WikiPagesResultRaw>('wiki_list_pages');
+      return {
+        pages: raw.pages.map(rawToWikiPage),
+        wikiPath: raw.wiki_path,
+        exists: raw.exists,
+      };
+    },
+    async reveal() {
+      await invoke('wiki_reveal_in_explorer');
+    },
+  };
+}
+
 // --- wiki -------------------------------------------------------------
 
-/** v0.1: wiki ask is deferred. Returns the empty fallback so the UI
- *  shows "no relevant entry yet" instead of crashing. v0.1.x will add
- *  a `wiki_ask` Tauri command that spawns `beaver wiki ask` sidecar.
- *
- *  review-pass v0.1: warning state lives inside the factory closure
- *  so each call to `makeTauriAskWikiTransport()` is independent —
- *  HMR re-evaluation and test isolation behave correctly. */
+interface WikiAskResultRaw {
+  answer: string;
+  source_pages: string[];
+}
+
+const WIKI_NO_INFO = 'no relevant info in the wiki';
+
+/** v0.1.1-D — real wiki transport. Calls the Tauri `wiki_ask` command
+ *  which spawns `beaver wiki ask <question>` in the active workspace,
+ *  bootstraps `.beaver/wiki/` if needed, and returns the LLM's answer
+ *  plus the source pages it cited. */
 export function makeTauriAskWikiTransport(): AskWikiTransport {
-  let warned = false;
   return {
-    async ask(_question, _signal) {
-      if (!warned) {
-        warned = true;
-        // eslint-disable-next-line no-console
-        console.warn('[beaver/tauri] wiki transport pending v0.1.x');
+    async ask(question, signal) {
+      if (signal.aborted) {
+        return { text: '', citations: [], empty: true };
       }
-      return { text: '', citations: [], empty: true };
+      try {
+        const raw = await invoke<WikiAskResultRaw>('wiki_ask', {
+          args: { question },
+        });
+        const empty = !raw.answer || raw.answer === WIKI_NO_INFO;
+        return {
+          text: empty ? '' : raw.answer,
+          citations: raw.source_pages.map((p) => ({
+            path: p,
+            // v0.1.1-D: askWiki doesn't surface excerpts yet; the
+            // renderer just shows the path. Excerpt support is a
+            // v0.1.x follow-up that adds a Tauri command for reading
+            // a single page from `<workspace>/.beaver/wiki/`.
+            excerpt: '',
+            truncated: false,
+          })),
+          empty,
+        };
+      } catch (err: unknown) {
+        // eslint-disable-next-line no-console
+        console.error('[beaver/tauri] wiki_ask failed', err);
+        // Phase 0 review-pass: re-throw so useAskWiki's error state
+        // activates and the user sees what went wrong (instead of
+        // the "no relevant entry yet" empty fallback that hides the
+        // real failure mode — claude CLI missing, network down, etc).
+        throw err instanceof Error ? err : new Error(String(err));
+      }
     },
   };
 }

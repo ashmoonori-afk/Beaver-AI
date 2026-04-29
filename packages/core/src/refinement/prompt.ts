@@ -94,5 +94,17 @@ export function buildRefinementPrompt(input: BuildRefinementPromptInput): {
         'similar — only change what the user asked for.)',
     );
   }
+  // v0.1.1-C — parent run context for follow-up runs.
+  if (input.parentContext) {
+    lines.push('');
+    lines.push('PARENT RUN CONTEXT (this run is a follow-up):');
+    lines.push(`  parent runId: ${input.parentContext.runId}`);
+    lines.push(`  parent goal: ${input.parentContext.goal}`);
+    lines.push(`  parent finalState: ${input.parentContext.finalState}`);
+    lines.push(
+      'Treat this PRD as an *increment* on top of the parent run — explicitly ' +
+        'reference what changed and what was left intact.',
+    );
+  }
   return { systemPrompt: SYSTEM, userPrompt: lines.join('\n') };
 }
