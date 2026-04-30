@@ -108,11 +108,7 @@ function isAcceptanceTitle(title: string): boolean {
   return t === 'acceptance' || t === 'acceptance criteria' || t === 'acceptance checklist';
 }
 
-function extractItemsBetween(
-  lines: string[],
-  start: number,
-  end: number,
-): ParseAcceptanceResult {
+function extractItemsBetween(lines: string[], start: number, end: number): ParseAcceptanceResult {
   const items: ParsedAcceptanceItem[] = [];
   const warnings: string[] = [];
   let inFence = false;

@@ -78,18 +78,22 @@ export function ThreePanelLayout({ left, center, right }: ThreePanelLayoutProps)
   }, [widths]);
 
   const onDragLeft = useDragHandle(containerRef, (deltaPct) => {
-    setWidths((prev) => clampWidths({
-      left: prev.left + deltaPct,
-      center: prev.center - deltaPct,
-      right: prev.right,
-    }));
+    setWidths((prev) =>
+      clampWidths({
+        left: prev.left + deltaPct,
+        center: prev.center - deltaPct,
+        right: prev.right,
+      }),
+    );
   });
   const onDragRight = useDragHandle(containerRef, (deltaPct) => {
-    setWidths((prev) => clampWidths({
-      left: prev.left,
-      center: prev.center + deltaPct,
-      right: prev.right - deltaPct,
-    }));
+    setWidths((prev) =>
+      clampWidths({
+        left: prev.left,
+        center: prev.center + deltaPct,
+        right: prev.right - deltaPct,
+      }),
+    );
   });
 
   const leftStyle: CSSProperties = { flexBasis: `${widths.left}%` };
@@ -116,10 +120,7 @@ export function ThreePanelLayout({ left, center, right }: ThreePanelLayoutProps)
         {center}
       </section>
       <ResizeHandle onDragStart={onDragRight} ariaLabel="Resize center and right panels" />
-      <section
-        style={rightStyle}
-        className="flex min-w-0 flex-grow basis-full flex-col"
-      >
+      <section style={rightStyle} className="flex min-w-0 flex-grow basis-full flex-col">
         {right}
       </section>
     </div>

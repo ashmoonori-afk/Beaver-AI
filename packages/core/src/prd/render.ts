@@ -14,10 +14,7 @@ const MIN_ACCEPTANCE_ITEMS = 1; // validatePrd requires ≥ 1; 3-7 is the prompt
 /** Render a `RefinementResult` as the 8-section markdown PRD that
  *  `validatePrd` accepts. Always returns a complete document so the
  *  orchestrator can save it to `<workspace>/.beaver/prd.md` directly. */
-export function renderRefinementAsMarkdown(
-  refinement: RefinementResult,
-  rawGoal: string,
-): string {
+export function renderRefinementAsMarkdown(refinement: RefinementResult, rawGoal: string): string {
   const summary = buildSummary(refinement);
   const background = buildBackground(refinement, rawGoal);
   const users = buildUsers(refinement);
@@ -27,16 +24,20 @@ export function renderRefinementAsMarkdown(
   const acceptance = buildAcceptance(refinement);
   const risks = buildRisks(refinement);
 
-  return [
-    `## Summary\n${summary}`,
-    `## Background\n${background}`,
-    `## Users\n${users}`,
-    `## Goals\n${goals}`,
-    `## Non-goals\n${nonGoals}`,
-    `## Solution sketch\n${solution}`,
-    `## Acceptance\n${acceptance}`,
-    `## Risks\n${risks}`,
-  ].join('\n\n').trim() + '\n';
+  return (
+    [
+      `## Summary\n${summary}`,
+      `## Background\n${background}`,
+      `## Users\n${users}`,
+      `## Goals\n${goals}`,
+      `## Non-goals\n${nonGoals}`,
+      `## Solution sketch\n${solution}`,
+      `## Acceptance\n${acceptance}`,
+      `## Risks\n${risks}`,
+    ]
+      .join('\n\n')
+      .trim() + '\n'
+  );
 }
 
 /** Two-to-four sentence summary. Prefer the PRD overview when the
@@ -98,7 +99,10 @@ function buildGoals(r: RefinementResult): string {
   if (source.length === 0) {
     return `- ${r.enrichedGoal.trim()}.`;
   }
-  return source.slice(0, 5).map((g) => `- ${g.trim()}`).join('\n');
+  return source
+    .slice(0, 5)
+    .map((g) => `- ${g.trim()}`)
+    .join('\n');
 }
 
 function buildNonGoals(r: RefinementResult): string {
@@ -106,7 +110,10 @@ function buildNonGoals(r: RefinementResult): string {
   if (source.length === 0) {
     return '- Out-of-scope items will be deferred to a follow-up run.';
   }
-  return source.slice(0, 3).map((n) => `- ${n.trim()}`).join('\n');
+  return source
+    .slice(0, 3)
+    .map((n) => `- ${n.trim()}`)
+    .join('\n');
 }
 
 /** Solution sketch — concrete files / endpoints / fields. We don't
@@ -117,7 +124,10 @@ function buildSolution(r: RefinementResult): string {
   if (features.length === 0) {
     return '- Implementation details will be derived from the acceptance items below.';
   }
-  return features.slice(0, 8).map((f) => `- ${f.trim()}`).join('\n');
+  return features
+    .slice(0, 8)
+    .map((f) => `- ${f.trim()}`)
+    .join('\n');
 }
 
 /** Flatten user-story acceptance criteria into `- [ ] …` items. The
@@ -163,7 +173,9 @@ function buildRisks(r: RefinementResult): string {
     lines.push(`- Open question: ${q.trim()}.`);
   }
   if (lines.length === 0) {
-    lines.push('- The goal text leaves implementation details to the coder; misinterpretation is the main risk.');
+    lines.push(
+      '- The goal text leaves implementation details to the coder; misinterpretation is the main risk.',
+    );
   }
   return lines.join('\n');
 }

@@ -32,7 +32,8 @@ export function ChatPane({ activeRunId, onSubmit, continueCta, workspaceCard }: 
       ) : (
         <div className="flex flex-1 flex-col gap-3">
           <p className="text-caption text-text-500">
-            Active run: <code className="rounded bg-surface-800 px-1 text-text-300">{activeRunId}</code>
+            Active run:{' '}
+            <code className="rounded bg-surface-800 px-1 text-text-300">{activeRunId}</code>
           </p>
           {continueCta}
         </div>

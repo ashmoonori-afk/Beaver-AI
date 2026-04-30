@@ -67,7 +67,10 @@ export async function runRun(argv: string[]): Promise<number> {
     .option('--server', 'launch the local web server (Phase 4 — not landed)')
     .option('--replace-active', 'abort an existing active run before starting')
     .option('--auto-approve-final-review', 'auto-approve the final-review checkpoint')
-    .option('--always-accept', 'v0.2 M2.6 — skip the PRD reviewer (every coder iteration counts as pass)')
+    .option(
+      '--always-accept',
+      'v0.2 M2.6 — skip the PRD reviewer (every coder iteration counts as pass)',
+    )
     .exitOverride();
   try {
     cmd.parse(argv, { from: 'user' });

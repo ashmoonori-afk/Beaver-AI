@@ -27,9 +27,7 @@ export function CostCounter({ totals, budgetUsd = 5 }: CostCounterProps) {
     <div className="flex flex-col gap-2" data-testid="cost-counter">
       <div className="flex items-baseline justify-between text-caption">
         <span className="text-text-500">Tokens</span>
-        <span className="text-text-50 tabular-nums">
-          {TOKEN_FMT.format(totalTokens)}
-        </span>
+        <span className="text-text-50 tabular-nums">{TOKEN_FMT.format(totalTokens)}</span>
       </div>
       <div className="flex items-baseline justify-between text-caption">
         <span className="text-text-500">Cost</span>

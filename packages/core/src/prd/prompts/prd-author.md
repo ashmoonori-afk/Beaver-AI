@@ -30,6 +30,7 @@ Plain, direct, no marketing copy. Write the way you would brief a colleague who 
 # Worked example
 
 User goal:
+
 ```
 add /health and /version endpoints to my Express app
 ```

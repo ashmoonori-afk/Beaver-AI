@@ -52,9 +52,7 @@ export function getPrdTaskById(db: Db, id: string): PrdTaskRow | null {
 
 /** All rows for a run, in stable idx order. */
 export function listPrdTasksByRunId(db: Db, runId: string): PrdTaskRow[] {
-  const rows = db
-    .prepare('SELECT * FROM prd_tasks WHERE run_id = ? ORDER BY idx')
-    .all(runId);
+  const rows = db.prepare('SELECT * FROM prd_tasks WHERE run_id = ? ORDER BY idx').all(runId);
   return rows.map((r) => PrdTaskRowSchema.parse(r));
 }
 

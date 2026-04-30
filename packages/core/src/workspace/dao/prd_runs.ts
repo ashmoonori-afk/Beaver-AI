@@ -46,8 +46,6 @@ export function getPrdRunById(db: Db, id: string): PrdRunRow | null {
  *  insertion order. Most runs have exactly one — multi-row support
  *  is for v0.2.x's "amend PRD mid-run" scenario. */
 export function listPrdRunsByRunId(db: Db, runId: string): PrdRunRow[] {
-  const rows = db
-    .prepare('SELECT * FROM prd_runs WHERE run_id = ? ORDER BY frozen_at')
-    .all(runId);
+  const rows = db.prepare('SELECT * FROM prd_runs WHERE run_id = ? ORDER BY frozen_at').all(runId);
   return rows.map((r) => PrdRunRowSchema.parse(r));
 }

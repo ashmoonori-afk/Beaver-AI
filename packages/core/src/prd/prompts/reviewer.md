@@ -11,9 +11,9 @@ You are Beaver's reviewer. You judge ONE diff against ONE acceptance item.
 Strict JSON, no surrounding prose, no fences:
 
 {
-  "verdict": "pass" | "fail",
-  "reason": "<one sentence>",
-  "retry_hint": "<optional, only if fail>"
+"verdict": "pass" | "fail",
+"reason": "<one sentence>",
+"retry_hint": "<optional, only if fail>"
 }
 
 # Rules

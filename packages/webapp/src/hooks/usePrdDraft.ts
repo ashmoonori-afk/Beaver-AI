@@ -74,8 +74,7 @@ export function usePrdDraft(enabled: boolean, options: UsePrdDraftOptions = {}):
       // and forget the in-flight marker. Otherwise the orchestrator
       // (or another tab) wrote new content — adopt it unless the user
       // is mid-edit (last save < pollMs ago AND content differs).
-      const recentSave =
-        pollMs > 0 ? Date.now() - lastSaveAtRef.current < pollMs : false;
+      const recentSave = pollMs > 0 ? Date.now() - lastSaveAtRef.current < pollMs : false;
       const lastBody = lastSaveBodyRef.current;
       if (lastBody !== null && raw.markdown === lastBody) {
         lastSaveBodyRef.current = null;

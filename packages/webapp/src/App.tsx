@@ -249,12 +249,7 @@ function HomePanel({
           <LivePane
             events={events}
             snapshot={snapshot}
-            costCounter={
-              <CostCounter
-                totals={totals}
-                budgetUsd={snapshot?.budgetUsd ?? 5}
-              />
-            }
+            costCounter={<CostCounter totals={totals} budgetUsd={snapshot?.budgetUsd ?? 5} />}
             logList={<LiveLogList lines={lines} />}
           />
         }

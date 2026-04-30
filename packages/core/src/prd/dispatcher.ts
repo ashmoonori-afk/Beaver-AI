@@ -172,9 +172,9 @@ async function seedTasksFromPrd(input: DispatchInput): Promise<void> {
  *  `running` rows back to `pending`. The retry cap (max 3 attempts)
  *  still applies via attempt_count, so a runaway can't loop. */
 function resetRunningRows(db: Db, runId: string): void {
-  db.prepare(
-    "UPDATE prd_tasks SET status = 'pending' WHERE run_id = ? AND status = 'running'",
-  ).run(runId);
+  db.prepare("UPDATE prd_tasks SET status = 'pending' WHERE run_id = ? AND status = 'running'").run(
+    runId,
+  );
 }
 
 async function runOneTask(
@@ -187,7 +187,13 @@ async function runOneTask(
   for (let attempt = task.attempt_count; attempt < MAX_PRD_TASK_ATTEMPTS; attempt += 1) {
     const startedAt = new Date().toISOString();
     updatePrdTaskStatus(input.db, task.id, 'running', { startedAt, bumpAttempt: true });
-    input.onEvent?.({ type: 'task.start', taskId: task.id, idx: task.idx, text: task.text, attempt });
+    input.onEvent?.({
+      type: 'task.start',
+      taskId: task.id,
+      idx: task.idx,
+      text: task.text,
+      attempt,
+    });
     insertEvent(input.db, {
       run_id: input.runId,
       ts: startedAt,

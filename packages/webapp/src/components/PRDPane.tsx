@@ -72,7 +72,10 @@ export function PRDPane({
   runSnapshotTransport,
 }: PRDPaneProps) {
   const draft = usePrdDraft(enabled, pollMs !== undefined ? { pollMs } : undefined);
-  const snapshot = useRunSnapshot(activeRunId ?? null, runSnapshotTransport ?? NOOP_SNAPSHOT_TRANSPORT);
+  const snapshot = useRunSnapshot(
+    activeRunId ?? null,
+    runSnapshotTransport ?? NOOP_SNAPSHOT_TRANSPORT,
+  );
   const isTerminal = snapshot ? TERMINAL_STATES.has(snapshot.state) : false;
   const [draftBody, setDraftBody] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'pending' | 'saved' | 'error'>('idle');
@@ -85,7 +88,10 @@ export function PRDPane({
   // we can find the pending goal-refinement card and answer it from
   // an inline button. When checkpointTransport / activeRunId is not
   // supplied, the Confirm button is just hidden.
-  const checkpointsHook = useCheckpoints(activeRunId ?? null, checkpointTransport ?? NOOP_TRANSPORT);
+  const checkpointsHook = useCheckpoints(
+    activeRunId ?? null,
+    checkpointTransport ?? NOOP_TRANSPORT,
+  );
   const pendingGoalRefinement = checkpointTransport
     ? checkpointsHook.checkpoints.find((c) => c.kind === 'goal-refinement')
     : undefined;
@@ -211,21 +217,15 @@ export function PRDPane({
     <section className="flex flex-col gap-3 py-6" data-testid="prd-pane">
       <div className="flex items-center justify-between">
         <h2 className="text-body font-medium text-text-50">PRD draft</h2>
-        <PrdStatusLabel
-          status={saveStatus}
-          existsOnDisk={draft.exists}
-          hookError={draft.error}
-        />
+        <PrdStatusLabel status={saveStatus} existsOnDisk={draft.exists} hookError={draft.error} />
       </div>
       <p className="text-caption text-text-500">
         Edits save automatically to{' '}
-        <code className="rounded bg-surface-800 px-1 text-text-300">.beaver/prd-draft.md</code>
-        . Approve the goal-refinement checkpoint to freeze this draft into{' '}
+        <code className="rounded bg-surface-800 px-1 text-text-300">.beaver/prd-draft.md</code>.
+        Approve the goal-refinement checkpoint to freeze this draft into{' '}
         <code className="rounded bg-surface-800 px-1 text-text-300">prd.md</code>.
       </p>
-      {isTerminal && snapshot ? (
-        <TerminalStateBanner state={snapshot.state} />
-      ) : null}
+      {isTerminal && snapshot ? <TerminalStateBanner state={snapshot.state} /> : null}
       <label className="sr-only" htmlFor="prd-draft-textarea">
         PRD draft markdown
       </label>
@@ -316,9 +316,13 @@ function TerminalStateBanner({ state }: TerminalStateBannerProps) {
       role="status"
       data-testid="prd-terminal-banner"
     >
-      <p className={tone === 'accent' ? 'text-caption text-accent-500' : 'text-caption text-danger-500'}>
-        {label} The editor below is read-only history; click{' '}
-        <strong>+ New run</strong> in the header to start over with this PRD as a starting point.
+      <p
+        className={
+          tone === 'accent' ? 'text-caption text-accent-500' : 'text-caption text-danger-500'
+        }
+      >
+        {label} The editor below is read-only history; click <strong>+ New run</strong> in the
+        header to start over with this PRD as a starting point.
       </p>
     </div>
   );
@@ -353,13 +357,13 @@ function ConfirmGate({ status, error, onConfirm, itemCount }: ConfirmGateProps) 
       </div>
       <p className="text-caption text-text-400">
         Approves the goal-refinement checkpoint, freezes the draft to{' '}
-        <code className="rounded bg-surface-900 px-1 text-text-300">.beaver/prd.md</code>, and
-        kicks off the PRD dispatcher (one coder/reviewer cycle per acceptance item).
+        <code className="rounded bg-surface-900 px-1 text-text-300">.beaver/prd.md</code>, and kicks
+        off the PRD dispatcher (one coder/reviewer cycle per acceptance item).
       </p>
       {noTasks ? (
         <p className="text-caption text-danger-500" role="alert" data-testid="prd-no-tasks-warn">
-          The Acceptance section has no <code>- [ ]</code> items. The dispatcher would skip
-          coding entirely. Add at least one item, or hit Confirm to finish without coding.
+          The Acceptance section has no <code>- [ ]</code> items. The dispatcher would skip coding
+          entirely. Add at least one item, or hit Confirm to finish without coding.
         </p>
       ) : null}
       <div className="flex items-center justify-end gap-3">
